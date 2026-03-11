@@ -32,24 +32,18 @@ private:
     void refreshTodos();
     void showHelp();
     
+    // State
     std::string m_searchQuery;
     int m_selectedIndex = 0;
-    int m_scrollOffset = 0;
-    todo::TodoStatus m_currentFilter = todo::TodoStatus::Active;
+    todo::TodoStatus m_currentFilter;
     
+    // FTXUI
+    ftxui::ScreenInteractive m_screen;
     Database m_db;
     std::vector<todo::Todo> m_todos;
     
-    // FTXUI components
-    ftxui::Component m_container;
-    ftxui::ScreenInteractive m_screen;
-    bool m_showHelp = false;
-    bool m_showAddDialog = false;
-    bool m_showEditDialog = false;
-    bool m_showDeleteConfirm = false;
-    bool m_showSearchDialog = false;
-    
     // Dialog state
+    bool m_showHelp = false;
     std::string m_dialogInput;
     int m_dialogPriority = 1;
     todo::Todo m_currentTodo;
