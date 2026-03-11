@@ -4,7 +4,9 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <optional>
 #include "models.hpp"
+#include <sqlite3.h>
 
 class Database {
 public:
@@ -28,7 +30,7 @@ public:
 private:
     void initSchema();
     std::string m_dbPath;
-    void* m_db; // SQLite3*
+    sqlite3* m_db; // SQLite database handle
 };
 
 #endif // DATABASE_HPP
