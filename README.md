@@ -1,11 +1,12 @@
 # C++ Todo TUI Application
 
-A beautiful Terminal User Interface (TUI) Todo application built with modern C++17, featuring:
+A beautiful **Terminal User Interface (TUI)** Todo application built with modern C++17 and **FTXUI**, featuring:
 
-- 🎨 **Rich TUI** using ncurses with colors, borders, and interactive widgets
-- 💾 **SQLite persistence** for reliable data storage
+- 🎨 **Modern TUI** using FTXUI - a functional C++ TUI library inspired by React
+- 💾 **SQLite persistence** for reliable data storage  
 - ⚡ **Fast and responsive** with modern C++17 features
-- ⌨️ **Keyboard shortcuts** for efficient navigation
+- 🖱️ **Mouse and keyboard support** for intuitive interaction
+- 🌈 **Beautiful colors** and styling with full UTF-8 support
 
 ## Features
 
@@ -17,26 +18,40 @@ A beautiful Terminal User Interface (TUI) Todo application built with modern C++
 - 🔍 Search through todos
 - 📊 View statistics and progress
 - 💾 Automatic save to SQLite database
+- 🎨 Beautiful UI with colors, borders, and layouts
+
+## Why FTXUI?
+
+**FTXUI (Functional Terminal User Interface)** is a modern C++ TUI library that:
+- Uses a **functional/reactive** style inspired by React
+- Provides beautiful **widgets and layouts** (vbox, hbox, grid, etc.)
+- Supports **colors, borders, animations**, and **UTF-8**
+- Has **no dependencies** - pure C++
+- Is **cross-platform** (Linux, macOS, Windows, WebAssembly)
+- Offers **keyboard and mouse** interaction
 
 ## Prerequisites
 
 ### Linux (Ubuntu/Debian)
 ```bash
 sudo apt-get update
-sudo apt-get install -y build-essential cmake libncurses5-dev libsqlite3-dev
+sudo apt-get install -y build-essential cmake libsqlite3-dev
 ```
 
 ### macOS
 ```bash
-brew install cmake sqlite3 ncurses
+brew install cmake sqlite3
 ```
 
-### Windows (with MSYS2/MinGW)
-```bash
-pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-sqlite3
+### Windows (with MSVC)
+```powershell
+# Install vcpkg and required packages
+vcpkg install sqlite3
 ```
 
 ## Building
+
+### Using CMake with FetchContent (Recommended)
 
 ```bash
 # Clone the repository
@@ -46,7 +61,7 @@ cd cpp-todo-tui
 # Create build directory
 mkdir build && cd build
 
-# Configure with CMake
+# Configure with CMake (FTXUI will be downloaded automatically)
 cmake .. -DCMAKE_BUILD_TYPE=Release
 
 # Build
@@ -66,13 +81,11 @@ cmake --build . -j$(nproc)
 | `e` | Edit selected todo |
 | `d` | Delete selected todo |
 | `t` | Toggle completion status |
-| `f` | Filter todos (Active/Completed) |
+| `f` | Filter (All ↔ Active ↔ Completed) |
 | `s` | Search todos |
 | `h` or `?` | Show help |
-| `q` or `F10` | Quit application |
-| `↑/↓` | Navigate list |
-| `Enter` | Select item |
-| `Esc` | Cancel/Back |
+| `↑/↓` or `k/j` | Navigate list |
+| `q` | Quit application |
 
 ### Adding a Todo
 
@@ -84,6 +97,7 @@ cmake --build . -j$(nproc)
 ### Filtering
 
 Press `f` to cycle through filters:
+- All todos
 - Active todos
 - Completed todos
 
@@ -91,12 +105,12 @@ Press `f` to cycle through filters:
 
 ```
 cpp-todo-tui/
-├── CMakeLists.txt          # CMake build configuration
+├── CMakeLists.txt          # CMake build with FTXUI FetchContent
 ├── README.md               # This file
 ├── .gitignore              # Git ignore rules
 ├── src/
 │   ├── main.cpp           # Application entry point
-│   ├── app.cpp            # Main application logic and TUI
+│   ├── app.cpp            # Main TUI logic using FTXUI
 │   ├── app.hpp            # Application class declaration
 │   ├── database.cpp       # SQLite database operations
 │   ├── database.hpp       # Database class declaration
@@ -106,6 +120,30 @@ cpp-todo-tui/
 ```
 
 ## Architecture
+
+### FTXUI Components
+
+The application uses FTXUI's **functional component model**:
+
+```cpp
+// Main UI structure
+vbox({
+    renderHeader(),      // Blue header bar
+    separator(),         // Horizontal line
+    renderTodoList(),    // Scrollable todo list
+    separator(),
+    renderStatusLine(),  // Statistics bar
+    separator(),
+    renderFooter()       // Keyboard shortcuts
+}) | border;             // Outer border
+```
+
+### Key FTXUI Features Used:
+
+- **Layout**: `vbox`, `hbox`, `flex`, `filler`
+- **Styling**: `color`, `bgcolor`, `bold`, `dim`, `inverted`, `strikethrough`
+- **Components**: `Renderer`, `CatchEvent`, `ScreenInteractive::Fullscreen()`
+- **Decorators**: `border`, `separator`, `flex_grow`
 
 ### Models
 - `Todo`: Represents a todo item with id, description, priority, status, and timestamps
@@ -117,13 +155,6 @@ cpp-todo-tui/
 - CRUD operations for todos
 - Automatic schema creation on first run
 - Prepared statements for security and performance
-
-### Application
-- ncurses-based TUI framework
-- Main window with todo list
-- Dialogs for adding/editing todos
-- Status bar with statistics
-- Keyboard event handling
 
 ## Database Schema
 
@@ -142,8 +173,22 @@ CREATE TABLE IF NOT EXISTS todos (
 ## Dependencies
 
 - **C++17** compiler (GCC 7+, Clang 5+, MSVC 2017+)
-- **ncurses** - Terminal handling library
+- **FTXUI** - Modern functional TUI library (auto-downloaded via CMake)
 - **SQLite3** - Embedded SQL database engine
+
+## FTXUI vs ncurses
+
+This application uses **FTXUI** instead of raw ncurses because:
+
+| Feature | FTXUI | ncurses |
+|---------|-------|---------|
+| **Style** | Functional/React-like | Imperative/C-style |
+| **Layout** | Easy vbox/hbox/grid | Manual positioning |
+| **Colors** | Named colors, easy | Complex color pairs |
+| **Widgets** | Built-in menus, inputs | Build from scratch |
+| **UTF-8** | Full support | Limited |
+| **Modern C++** | Yes, C++17+ | C-style APIs |
+| **Dependencies** | None | ncurses library |
 
 ## License
 
@@ -161,10 +206,10 @@ MIT License - Feel free to use, modify, and distribute.
 
 ### Build Issues
 
-**Error: ncurses not found**
-```bash
-sudo apt-get install libncurses5-dev libncursesw5-dev
-```
+**Error: FTXUI not found**
+- FTXUI is automatically downloaded via CMake FetchContent
+- Make sure you have internet connection during first build
+- Or manually install FTXUI: `sudo apt-get install libftxui-dev`
 
 **Error: SQLite3 not found**
 ```bash
@@ -173,12 +218,12 @@ sudo apt-get install libsqlite3-dev
 
 ### Runtime Issues
 
-**Error: Database locked**
-- Close other applications using the database
-- Delete `todo.db` and restart (data will be lost)
-
 **Error: Terminal too small**
 - Resize your terminal to at least 80x24 characters
+
+**Error: Colors not showing**
+- Make sure your terminal supports colors
+- Try `export TERM=xterm-256color`
 
 ## Roadmap
 
@@ -188,12 +233,31 @@ sudo apt-get install libsqlite3-dev
 - [ ] Cloud synchronization
 - [ ] Dark/Light themes
 - [ ] Multi-user support
+- [ ] FTXUI animations for transitions
 
 ## Acknowledgments
 
-- [ncurses](https://invisible-island.net/ncurses/) - Terminal handling library
+- [FTXUI](https://github.com/ArthurSonzogni/FTXUI) - Modern C++ TUI library by Arthur Sonzogni
 - [SQLite](https://www.sqlite.org/) - Embedded SQL database engine
+
+## Examples
+
+### UI Preview
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                        TODO LIST                                   │
+├────────────────────────────────────────────────────────────────────┤
+│ [ ] HIGH  Buy groceries                                            │
+│ [x] MEDIUM Finish project ✗                                        │
+│ [ ] LOW   Call mom                                                 │
+├────────────────────────────────────────────────────────────────────┤
+│ Total: 3 | Active: 2 | Done: 1 | Filter: All                      │
+├────────────────────────────────────────────────────────────────────┤
+│ [n]New [e]Edit [d]Delete [t]Toggle [f]Filter [s]Search [h]Help [q]│
+└────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-Built with ❤️ using C++17
+Built with ❤️ using **FTXUI** and C++17
