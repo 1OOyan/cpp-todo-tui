@@ -5,11 +5,11 @@
 #include <ftxui/component/event.hpp>
 #include <sstream>
 #include <algorithm>
-#include <iostream>
+#include <functional>
 
 using namespace ftxui;
 
-App::App() : m_db("todo.db"), m_screen(ScreenInteractive::Fullscreen()), m_currentFilter(todo::TodoStatus::Active) {
+App::App() : m_currentFilter(todo::TodoStatus::Active), m_screen(ScreenInteractive::Fullscreen()), m_db("todo.db") {
     refreshTodos();
 }
 
@@ -31,10 +31,6 @@ void App::refreshTodos() {
 }
 
 void App::run() {
-    // Main menu component
-    auto menu = Container::Vertical({});
-    
-    // Create the main UI
     auto main_ui = Renderer([this]() {
         return vbox({
             renderHeader(),
@@ -47,57 +43,56 @@ void App::run() {
         }) | border;
     });
     
-    // Handle keyboard events
-    auto main_component = CatchEvent(main_ui, [&](Event event) {
-        if (m_showHelp) {
-            if (event == Event::Character('q') || event == Event::Escape) {
-                m_showHelp = false;
-                return true;
-            }
+    auto main_component = CatchEvent(main_ui, [this](Event event) {
+        if (event == Event::Character('q')) {
+            m_screen.ExitLoopClosure();
             return true;
         }
         
-        if (m_showAddDialog || m_showEditDialog || m_showDeleteConfirm || m_showSearchDialog) {
-            return false; // Let dialog handle events
+        if (m_showHelp) {
+            m_showHelp = false;
+            return true;
         }
         
-        switch (event) {
-            case Event::Character('n'):
-                addTodo();
-                return true;
-            case Event::Character('e'):
-                if (!m_todos.empty()) editTodo();
-                return true;
-            case Event::Character('d'):
-                if (!m_todos.empty()) deleteTodo();
-                return true;
-            case Event::Character('t'):
-                if (!m_todos.empty()) toggleTodo();
-                return true;
-            case Event::Character('f'):
-                filterTodos();
-                return true;
-            case Event::Character('s'):
-                searchTodos();
-                return true;
-            case Event::Character('h'):
-            case Event::Character('?'):
-                m_showHelp = true;
-                return true;
-            case Event::Character('q'):
-                m_screen.ExitLoopClosure();
-                return true;
-            case Event::ArrowUp:
-            case Event::Character('k'):
-                if (m_selectedIndex > 0) m_selectedIndex--;
-                return true;
-            case Event::ArrowDown:
-            case Event::Character('j'):
-                if (m_selectedIndex < static_cast<int>(m_todos.size()) - 1) m_selectedIndex++;
-                return true;
-            default:
-                return false;
+        if (event == Event::Character('n')) {
+            addTodo();
+            return true;
         }
+        if (event == Event::Character('e')) {
+            if (!m_todos.empty()) editTodo();
+            return true;
+        }
+        if (event == Event::Character('d')) {
+            if (!m_todos.empty()) deleteTodo();
+            return true;
+        }
+        if (event == Event::Character('t')) {
+            if (!m_todos.empty()) toggleTodo();
+            return true;
+        }
+        if (event == Event::Character('f')) {
+            filterTodos();
+            return true;
+        }
+        if (event == Event::Character('s')) {
+            searchTodos();
+            return true;
+        }
+        if (event == Event::Character('h') || event == Event::Character('?')) {
+            m_showHelp = true;
+            showHelp();
+            return true;
+        }
+        if (event == Event::ArrowUp || event == Event::Character('k')) {
+            if (m_selectedIndex > 0) m_selectedIndex--;
+            return true;
+        }
+        if (event == Event::ArrowDown || event == Event::Character('j')) {
+            if (m_selectedIndex < static_cast<int>(m_todos.size()) - 1) m_selectedIndex++;
+            return true;
+        }
+        
+        return false;
     });
     
     m_screen.Loop(main_component);
@@ -225,39 +220,45 @@ ftxui::Element App::renderTodoList() {
 void App::addTodo() {
     std::string description;
     int priority = 1;
+    bool done = false;
     
-    // Simple input loop for description
-    auto input_component = CatchEvent(
-        Renderer([&]() {
-            return vbox({
-                text("Add New Todo"),
-                separator(),
-                text("Description: "),
-                text(description) | input,
-                text("Priority (1=Low, 2=Medium, 3=High): " + std::to_string(priority)),
-                separator(),
-                text("Press Enter to save, Esc to cancel")
-            }) | border;
-        }),
-        [&](Event event) {
-            if (event == Event::Return) {
-                if (!description.empty()) {
-                    todo::Todo newTodo;
-                    newTodo.description = description;
-                    newTodo.priority = static_cast<todo::Priority>(priority);
-                    m_db.createTodo(newTodo);
-                    refreshTodos();
-                }
-                return true;
+    auto input_desc = Input(&description, "Description:");
+    auto input_prio = Input(&priority, "Priority (1-3):");
+    
+    auto add_ui = Renderer([this, &description, &priority, &input_desc, &input_prio]() {
+        return vbox({
+            text("Add New Todo") | bold,
+            separator(),
+            text("Description:"),
+            input_desc->Render(),
+            text("Priority (1=Low, 2=Medium, 3=High): " + std::to_string(priority)),
+            separator(),
+            text("Press Enter to save, Esc to cancel") | dim
+        }) | border;
+    });
+    
+    auto add_comp = CatchEvent(add_ui, [&](Event event) {
+        if (event == Event::Return) {
+            if (!description.empty()) {
+                todo::Todo newTodo;
+                newTodo.description = description;
+                newTodo.priority = static_cast<todo::Priority>(std::max(1, std::min(3, priority)));
+                m_db.createTodo(newTodo);
+                refreshTodos();
             }
-            if (event == Event::Escape) {
-                return true;
-            }
-            return false;
+            done = true;
+            return true;
         }
-    );
+        if (event == Event::Escape) {
+            done = true;
+            return true;
+        }
+        return false;
+    });
     
-    m_screen.Loop(input_component);
+    while (!done) {
+        m_screen.Loop(add_comp);
+    }
 }
 
 void App::editTodo() {
@@ -266,68 +267,78 @@ void App::editTodo() {
     todo::Todo& todo = m_todos[m_selectedIndex];
     std::string description = todo.description;
     int priority = static_cast<int>(todo.priority);
+    bool done = false;
     
-    auto input_component = CatchEvent(
-        Renderer([&]() {
-            return vbox({
-                text("Edit Todo"),
-                separator(),
-                text("Description: "),
-                text(description) | input,
-                text("Priority (1=Low, 2=Medium, 3=High): " + std::to_string(priority)),
-                separator(),
-                text("Press Enter to save, Esc to cancel")
-            }) | border;
-        }),
-        [&](Event event) {
-            if (event == Event::Return) {
-                if (!description.empty()) {
-                    todo.description = description;
-                    todo.priority = static_cast<todo::Priority>(priority);
-                    m_db.updateTodo(todo);
-                    refreshTodos();
-                }
-                return true;
+    auto input_desc = Input(&description, "Description:");
+    
+    auto edit_ui = Renderer([this, &description, &priority, &input_desc]() {
+        return vbox({
+            text("Edit Todo") | bold,
+            separator(),
+            text("Description:"),
+            input_desc->Render(),
+            text("Priority (1=Low, 2=Medium, 3=High): " + std::to_string(priority)),
+            separator(),
+            text("Press Enter to save, Esc to cancel") | dim
+        }) | border;
+    });
+    
+    auto edit_comp = CatchEvent(edit_ui, [&](Event event) {
+        if (event == Event::Return) {
+            if (!description.empty()) {
+                todo.description = description;
+                todo.priority = static_cast<todo::Priority>(std::max(1, std::min(3, priority)));
+                m_db.updateTodo(todo);
+                refreshTodos();
             }
-            if (event == Event::Escape) {
-                return true;
-            }
-            return false;
+            done = true;
+            return true;
         }
-    );
+        if (event == Event::Escape) {
+            done = true;
+            return true;
+        }
+        return false;
+    });
     
-    m_screen.Loop(input_component);
+    while (!done) {
+        m_screen.Loop(edit_comp);
+    }
 }
 
 void App::deleteTodo() {
     if (m_selectedIndex < 0 || m_selectedIndex >= static_cast<int>(m_todos.size())) return;
     
     const auto& todo = m_todos[m_selectedIndex];
+    bool confirmed = false;
+    bool done = false;
     
-    auto confirm_component = CatchEvent(
-        Renderer([&]() {
-            return vbox({
-                text("Delete Todo?"),
-                separator(),
-                text("\"" + todo.description + "\""),
-                separator(),
-                text("Press Y to confirm, any other key to cancel")
-            }) | border;
-        }),
-        [&](Event event) {
-            if (event == Event::Character('y') || event == Event::Character('Y')) {
-                m_db.deleteTodo(todo.id);
-                if (m_selectedIndex >= static_cast<int>(m_todos.size()) - 1) {
-                    m_selectedIndex = m_todos.empty() ? 0 : static_cast<int>(m_todos.size()) - 1;
-                }
-                refreshTodos();
-                return true;
+    auto confirm_ui = Renderer([&]() {
+        return vbox({
+            text("Delete Todo?") | bold,
+            separator(),
+            text("\"" + todo.description + "\""),
+            separator(),
+            text("Press Y to confirm, any other key to cancel") | dim
+        }) | border;
+    });
+    
+    auto confirm_comp = CatchEvent(confirm_ui, [&](Event event) {
+        if (event == Event::Character('y') || event == Event::Character('Y')) {
+            m_db.deleteTodo(todo.id);
+            if (m_selectedIndex >= static_cast<int>(m_todos.size()) - 1) {
+                m_selectedIndex = m_todos.empty() ? 0 : static_cast<int>(m_todos.size()) - 1;
             }
-            return true;
+            refreshTodos();
+            confirmed = true;
         }
-    );
+        done = true;
+        return true;
+    });
     
-    m_screen.Loop(confirm_component);
+    while (!done) {
+        m_screen.Loop(confirm_comp);
+    }
 }
 
 void App::toggleTodo() {
@@ -356,41 +367,49 @@ void App::filterTodos() {
 
 void App::searchTodos() {
     std::string query;
+    bool done = false;
     
-    auto search_component = CatchEvent(
-        Renderer([&]() {
-            return vbox({
-                text("Search Todos"),
-                separator(),
-                text("Enter search text: "),
-                text(query) | input,
-                separator(),
-                text("Press Enter to search, Esc to cancel")
-            }) | border;
-        }),
-        [&](Event event) {
-            if (event == Event::Return) {
-                if (!query.empty()) {
-                    m_searchQuery = query;
-                    m_todos = m_db.searchTodos(m_searchQuery);
-                    m_selectedIndex = 0;
-                }
-                return true;
+    auto input_query = Input(&query, "Search:");
+    
+    auto search_ui = Renderer([&]() {
+        return vbox({
+            text("Search Todos") | bold,
+            separator(),
+            text("Enter search text:"),
+            input_query->Render(),
+            separator(),
+            text("Press Enter to search, Esc to cancel") | dim
+        }) | border;
+    });
+    
+    auto search_comp = CatchEvent(search_ui, [&](Event event) {
+        if (event == Event::Return) {
+            if (!query.empty()) {
+                m_searchQuery = query;
+                m_todos = m_db.searchTodos(m_searchQuery);
+                m_selectedIndex = 0;
             }
-            if (event == Event::Escape) {
-                m_searchQuery.clear();
-                refreshTodos();
-                return true;
-            }
-            return false;
+            done = true;
+            return true;
         }
-    );
+        if (event == Event::Escape) {
+            m_searchQuery.clear();
+            refreshTodos();
+            done = true;
+            return true;
+        }
+        return false;
+    });
     
-    m_screen.Loop(search_component);
+    while (!done) {
+        m_screen.Loop(search_comp);
+    }
 }
 
 void App::showHelp() {
-    auto help_component = Renderer([&]() {
+    bool done = false;
+    
+    auto help_ui = Renderer([&]() {
         return vbox({
             text("  HELP - KEYBOARD SHORTCUTS  ") | bold,
             separator(),
@@ -409,10 +428,13 @@ void App::showHelp() {
         }) | border;
     });
     
-    auto help_catch = CatchEvent(help_component, [&](Event event) {
+    auto help_comp = CatchEvent(help_ui, [&](Event) {
+        done = true;
         m_showHelp = false;
         return true;
     });
     
-    m_screen.Loop(help_catch);
+    while (!done) {
+        m_screen.Loop(help_comp);
+    }
 }
