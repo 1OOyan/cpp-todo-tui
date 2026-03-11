@@ -9,15 +9,6 @@
 
 using namespace ftxui;
 
-// Helper to convert TodoStatus to string for display
-std::string statusToString(todo::TodoStatus status) {
-    switch (status) {
-        case todo::TodoStatus::Active: return "Active";
-        case todo::TodoStatus::Completed: return "Completed";
-        default: return "All";
-    }
-}
-
 App::App() : m_currentFilter(todo::TodoStatus::Active), m_screen(ScreenInteractive::Fullscreen()), m_db("todo.db") {
     refreshTodos();
 }
@@ -27,13 +18,10 @@ App::~App() = default;
 void App::refreshTodos() {
     if (m_currentFilter == todo::TodoStatus::Active) {
         m_todos = m_db.getTodosByStatus(todo::TodoStatus::Active);
-    } else if (m_currentFilter == todo::TodoStatus::Completed) {
-        m_todos = m_db.getTodosByStatus(todo::TodoStatus::Completed);
     } else {
-        m_todos = m_db.getAllTodos();
+        m_todos = m_db.getTodosByStatus(todo::TodoStatus::Completed);
     }
     
-    // Ensure selected index is valid
     if (m_todos.empty()) {
         m_selectedIndex = 0;
     } else if (m_selectedIndex >= static_cast<int>(m_todos.size())) {
@@ -56,7 +44,6 @@ void App::run() {
     });
     
     auto main_component = CatchEvent(main_ui, [this](Event event) {
-        // Global quit (only in main view, not in dialogs)
         if (event == Event::Character('q')) {
             m_screen.ExitLoopClosure();
             return true;
@@ -67,7 +54,6 @@ void App::run() {
             return true;
         }
         
-        // Only accept these keys in main view
         if (event == Event::Character('n')) {
             addTodo();
             return true;
@@ -141,13 +127,10 @@ ftxui::Element App::renderStatusLine() {
     std::stringstream ss;
     ss << " Total: " << total << " | Active: " << active << " | Done: " << completed;
     
-    // Show filter status
     if (m_currentFilter == todo::TodoStatus::Active) {
         ss << " | Filter: Active";
-    } else if (m_currentFilter == todo::TodoStatus::Completed) {
-        ss << " | Filter: Completed";
     } else {
-        ss << " | Filter: All";
+        ss << " | Filter: Completed";
     }
     
     if (!m_searchQuery.empty()) {
@@ -175,14 +158,12 @@ ftxui::Element App::renderTodoList() {
         const auto& todo = m_todos[i];
         bool isSelected = (i == m_selectedIndex);
         
-        // Status
         std::string status = todo.isCompleted() ? "[x]" : "[ ]";
         Element statusElem = text(" " + status + " ");
         if (todo.isCompleted()) {
             statusElem = statusElem | color(Color::Green);
         }
         
-        // Priority with better formatting
         std::string prio;
         Color prioColor;
         switch (todo.priority) {
@@ -201,9 +182,7 @@ ftxui::Element App::renderTodoList() {
         }
         Element prioElem = text(" " + prio + " ") | color(prioColor);
         
-        // Description
         std::string desc = todo.description;
-        // Truncate if too long
         if (desc.length() > 60) {
             desc = desc.substr(0, 57) + "...";
         }
@@ -212,7 +191,6 @@ ftxui::Element App::renderTodoList() {
             descElem = descElem | dim | strikethrough;
         }
         
-        // Combine
         Element row = hbox({
             statusElem,
             prioElem,
@@ -231,92 +209,84 @@ ftxui::Element App::renderTodoList() {
 
 void App::addTodo() {
     std::string description;
-    int selectedPriority = 2; // Medium priority by default
+    int selectedPriority = 2;
     bool done = false;
     bool error = false;
     std::string errorMsg;
     
-    // Create input component
     auto input_desc = Input(&description, "Description:");
     
-    auto add_ui = Renderer([this, &description, &selectedPriority, &input_desc, &error, &errorMsg]() {
-        std::string prioText;
-        switch (selectedPriority) {
-            case 1: prioText = "Low"; break;
-            case 2: prioText = "Medium"; break;
-            case 3: prioText = "High"; break;
-        }
-        
-        Elements content;
-        content.push_back(text("Add New Todo") | bold);
-        content.push_back(separator());
-        content.push_back(text("Description:"));
-        content.push_back(input_desc->Render());
-        content.push_back(text(""));
-        content.push_back(separator());
-        content.push_back(text("Priority (1=Low, 2=Medium, 3=High): ") | dim);
-        content.push_back(text(prioText) | bold);
-        content.push_back(text("  Press 1, 2, or 3 to change, Enter to save") | dim);
-        
-        if (error) {
+    while (!done) {
+        auto dialog_ui = Renderer([&]() {
+            std::string prioText;
+            switch (selectedPriority) {
+                case 1: prioText = "Low"; break;
+                case 2: prioText = "Medium"; break;
+                case 3: prioText = "High"; break;
+            }
+            
+            Elements content;
+            content.push_back(text("Add New Todo") | bold);
+            content.push_back(separator());
+            content.push_back(text("Description:"));
+            content.push_back(input_desc->Render());
             content.push_back(text(""));
             content.push_back(separator());
-            content.push_back(text(errorMsg) | color(Color::Red));
-        }
+            content.push_back(text("Priority (1=Low, 2=Medium, 3=High): ") | dim);
+            content.push_back(text(prioText) | bold);
+            content.push_back(text("  Press 1, 2, or 3 to change, Enter to save") | dim);
+            
+            if (error) {
+                content.push_back(text(""));
+                content.push_back(separator());
+                content.push_back(text(errorMsg) | color(Color::Red));
+            }
+            
+            return vbox(content) | border;
+        });
         
-        return vbox(content) | border;
-    });
-    
-    auto add_comp = CatchEvent(add_ui, [&](Event event) {
-        // Handle ESC to cancel
-        if (event == Event::Escape) {
-            done = true;
-            return true;
-        }
-        
-        // Handle Enter to confirm
-        if (event == Event::Return) {
-            if (description.empty()) {
-                error = true;
-                errorMsg = "Description cannot be empty!";
+        auto dialog_comp = CatchEvent(dialog_ui, [&](Event event) {
+            if (event == Event::Escape) {
+                done = true;
                 return true;
             }
             
-            todo::Todo newTodo;
-            newTodo.description = description;
-            newTodo.priority = static_cast<todo::Priority>(selectedPriority);
-            m_db.createTodo(newTodo);
-            refreshTodos();
-            done = true;
-            return true;
-        }
+            if (event == Event::Return) {
+                if (description.empty()) {
+                    error = true;
+                    errorMsg = "Description cannot be empty!";
+                    return true;
+                }
+                
+                todo::Todo newTodo;
+                newTodo.description = description;
+                newTodo.priority = static_cast<todo::Priority>(selectedPriority);
+                m_db.createTodo(newTodo);
+                refreshTodos();
+                done = true;
+                return true;
+            }
+            
+            if (event == Event::Character('1')) {
+                selectedPriority = 1;
+                error = false;
+                return true;
+            }
+            if (event == Event::Character('2')) {
+                selectedPriority = 2;
+                error = false;
+                return true;
+            }
+            if (event == Event::Character('3')) {
+                selectedPriority = 3;
+                error = false;
+                return true;
+            }
+            
+            return false;
+        });
         
-        // Priority selection
-        if (event == Event::Character('1')) {
-            selectedPriority = 1;
-            error = false;
-            return true;
-        }
-        if (event == Event::Character('2')) {
-            selectedPriority = 2;
-            error = false;
-            return true;
-        }
-        if (event == Event::Character('3')) {
-            selectedPriority = 3;
-            error = false;
-            return true;
-        }
-        
-        return false;
-    });
-    
-    // Wrap in Modal component
-    bool show = true;
-    auto dialog = Modal(add_comp, add_comp, &show);
-    
-    while (show) {
-        m_screen.Loop(dialog);
+        m_screen.Loop(dialog_comp);
     }
 }
 
@@ -332,80 +302,76 @@ void App::editTodo() {
     
     auto input_desc = Input(&description, "Description:");
     
-    auto edit_ui = Renderer([this, &description, &selectedPriority, &input_desc, &error, &errorMsg]() {
-        std::string prioText;
-        switch (selectedPriority) {
-            case 1: prioText = "Low"; break;
-            case 2: prioText = "Medium"; break;
-            case 3: prioText = "High"; break;
-        }
-        
-        Elements content;
-        content.push_back(text("Edit Todo") | bold);
-        content.push_back(separator());
-        content.push_back(text("Description:"));
-        content.push_back(input_desc->Render());
-        content.push_back(text(""));
-        content.push_back(separator());
-        content.push_back(text("Current Priority: ") | dim);
-        content.push_back(text(prioText) | bold);
-        content.push_back(text("  Press 1, 2, or 3 to change priority") | dim);
-        content.push_back(text("  Press Enter to save, Esc to cancel") | dim);
-        
-        if (error) {
+    while (!done) {
+        auto dialog_ui = Renderer([&]() {
+            std::string prioText;
+            switch (selectedPriority) {
+                case 1: prioText = "Low"; break;
+                case 2: prioText = "Medium"; break;
+                case 3: prioText = "High"; break;
+            }
+            
+            Elements content;
+            content.push_back(text("Edit Todo") | bold);
+            content.push_back(separator());
+            content.push_back(text("Description:"));
+            content.push_back(input_desc->Render());
             content.push_back(text(""));
             content.push_back(separator());
-            content.push_back(text(errorMsg) | color(Color::Red));
-        }
+            content.push_back(text("Current Priority: ") | dim);
+            content.push_back(text(prioText) | bold);
+            content.push_back(text("  Press 1, 2, or 3 to change priority") | dim);
+            content.push_back(text("  Press Enter to save, Esc to cancel") | dim);
+            
+            if (error) {
+                content.push_back(text(""));
+                content.push_back(separator());
+                content.push_back(text(errorMsg) | color(Color::Red));
+            }
+            
+            return vbox(content) | border;
+        });
         
-        return vbox(content) | border;
-    });
-    
-    auto edit_comp = CatchEvent(edit_ui, [&](Event event) {
-        if (event == Event::Escape) {
-            done = true;
-            return true;
-        }
-        
-        if (event == Event::Return) {
-            if (description.empty()) {
-                error = true;
-                errorMsg = "Description cannot be empty!";
+        auto dialog_comp = CatchEvent(dialog_ui, [&](Event event) {
+            if (event == Event::Escape) {
+                done = true;
                 return true;
             }
             
-            todo.description = description;
-            todo.priority = static_cast<todo::Priority>(selectedPriority);
-            m_db.updateTodo(todo);
-            refreshTodos();
-            done = true;
-            return true;
-        }
+            if (event == Event::Return) {
+                if (description.empty()) {
+                    error = true;
+                    errorMsg = "Description cannot be empty!";
+                    return true;
+                }
+                
+                todo.description = description;
+                todo.priority = static_cast<todo::Priority>(selectedPriority);
+                m_db.updateTodo(todo);
+                refreshTodos();
+                done = true;
+                return true;
+            }
+            
+            if (event == Event::Character('1')) {
+                selectedPriority = 1;
+                error = false;
+                return true;
+            }
+            if (event == Event::Character('2')) {
+                selectedPriority = 2;
+                error = false;
+                return true;
+            }
+            if (event == Event::Character('3')) {
+                selectedPriority = 3;
+                error = false;
+                return true;
+            }
+            return false;
+        });
         
-        // Priority selection
-        if (event == Event::Character('1')) {
-            selectedPriority = 1;
-            error = false;
-            return true;
-        }
-        if (event == Event::Character('2')) {
-            selectedPriority = 2;
-            error = false;
-            return true;
-        }
-        if (event == Event::Character('3')) {
-            selectedPriority = 3;
-            error = false;
-            return true;
-        }
-        return false;
-    });
-    
-    bool show = true;
-    auto dialog = Modal(edit_comp, edit_comp, &show);
-    
-    while (show) {
-        m_screen.Loop(dialog);
+        m_screen.Loop(dialog_comp);
     }
 }
 
@@ -416,36 +382,33 @@ void App::deleteTodo() {
     bool done = false;
     bool confirmed = false;
     
-    auto confirm_ui = Renderer([&]() {
-        Elements content;
-        content.push_back(text("Delete Todo?") | bold | color(Color::Red));
-        content.push_back(separator());
-        content.push_back(text("\"" + todo.description + "\""));
-        content.push_back(text(""));
-        content.push_back(separator());
-        content.push_back(text("Press Y to confirm, N to cancel") | dim);
+    while (!done) {
+        auto dialog_ui = Renderer([&]() {
+            Elements content;
+            content.push_back(text("Delete Todo?") | bold | color(Color::Red));
+            content.push_back(separator());
+            content.push_back(text("\"" + todo.description + "\""));
+            content.push_back(text(""));
+            content.push_back(separator());
+            content.push_back(text("Press Y to confirm, N to cancel") | dim);
+            
+            return vbox(content) | border;
+        });
         
-        return vbox(content) | border;
-    });
-    
-    auto confirm_comp = CatchEvent(confirm_ui, [&](Event event) {
-        if (event == Event::Character('y') || event == Event::Character('Y')) {
-            m_db.deleteTodo(todo.id);
-            if (m_selectedIndex >= static_cast<int>(m_todos.size())) {
-                m_selectedIndex = m_todos.empty() ? 0 : static_cast<int>(m_todos.size()) - 1;
+        auto dialog_comp = CatchEvent(dialog_ui, [&](Event event) {
+            if (event == Event::Character('y') || event == Event::Character('Y')) {
+                m_db.deleteTodo(todo.id);
+                if (m_selectedIndex >= static_cast<int>(m_todos.size())) {
+                    m_selectedIndex = m_todos.empty() ? 0 : static_cast<int>(m_todos.size()) - 1;
+                }
+                refreshTodos();
+                confirmed = true;
             }
-            refreshTodos();
-            confirmed = true;
-        }
-        done = true;
-        return true;
-    });
-    
-    bool show = true;
-    auto dialog = Modal(confirm_ui, confirm_ui, &show);
-    
-    while (show) {
-        m_screen.Loop(dialog);
+            done = true;
+            return true;
+        });
+        
+        m_screen.Loop(dialog_comp);
     }
 }
 
@@ -456,7 +419,6 @@ void App::toggleTodo() {
     todo.status = todo.isCompleted() ? todo::TodoStatus::Active : todo::TodoStatus::Completed;
     m_db.updateTodo(todo);
     
-    // Move to next item if current is now filtered out
     if (m_currentFilter == todo::TodoStatus::Active && todo.isCompleted()) {
         if (m_selectedIndex < static_cast<int>(m_todos.size()) - 1) {
             m_selectedIndex++;
@@ -475,19 +437,12 @@ void App::toggleTodo() {
 }
 
 void App::filterTodos() {
-    // Cycle through: Active -> Completed -> All -> Active
     if (m_currentFilter == todo::TodoStatus::Active) {
         m_currentFilter = todo::TodoStatus::Completed;
-    } else if (m_currentFilter == todo::TodoStatus::Completed) {
-        // Use a special case for "All" - we'll set it to a value that triggers getAllTodos()
-        // Since enum doesn't have All, we'll use a trick: set to Completed but track separately
-        // Actually, let's just cycle back to Active for now
-        m_currentFilter = todo::TodoStatus::Active;
     } else {
         m_currentFilter = todo::TodoStatus::Active;
     }
     
-    // Clear search when changing filter
     m_searchQuery.clear();
     refreshTodos();
 }
@@ -498,88 +453,80 @@ void App::searchTodos() {
     
     auto input_query = Input(&query, "Search:");
     
-    auto search_ui = Renderer([&]() {
-        Elements content;
-        content.push_back(text("Search Todos") | bold);
-        content.push_back(separator());
-        content.push_back(text("Enter text to search:"));
-        content.push_back(input_query->Render());
-        content.push_back(text(""));
-        content.push_back(separator());
-        content.push_back(text("Press Enter to search, Esc to cancel") | dim);
+    while (!done) {
+        auto dialog_ui = Renderer([&]() {
+            Elements content;
+            content.push_back(text("Search Todos") | bold);
+            content.push_back(separator());
+            content.push_back(text("Enter text to search:"));
+            content.push_back(input_query->Render());
+            content.push_back(text(""));
+            content.push_back(separator());
+            content.push_back(text("Press Enter to search, Esc to cancel") | dim);
+            
+            return vbox(content) | border;
+        });
         
-        return vbox(content) | border;
-    });
-    
-    auto search_comp = CatchEvent(search_ui, [&](Event event) {
-        if (event == Event::Escape) {
-            m_searchQuery.clear();
-            refreshTodos();
-            done = true;
-            return true;
-        }
-        
-        if (event == Event::Return) {
-            if (!query.empty()) {
-                m_searchQuery = query;
-                // Clear filter when searching
-                todo::TodoStatus oldFilter = m_currentFilter;
-                m_todos = m_db.searchTodos(m_searchQuery);
-                m_currentFilter = oldFilter;
-                m_selectedIndex = 0;
-            } else {
-                // Empty search clears search
+        auto dialog_comp = CatchEvent(dialog_ui, [&](Event event) {
+            if (event == Event::Escape) {
                 m_searchQuery.clear();
                 refreshTodos();
+                done = true;
+                return true;
             }
-            done = true;
-            return true;
-        }
-        return false;
-    });
-    
-    bool show = true;
-    auto dialog = Modal(search_ui, search_ui, &show);
-    
-    while (show) {
-        m_screen.Loop(dialog);
+            
+            if (event == Event::Return) {
+                if (!query.empty()) {
+                    m_searchQuery = query;
+                    todo::TodoStatus oldFilter = m_currentFilter;
+                    m_todos = m_db.searchTodos(m_searchQuery);
+                    m_currentFilter = oldFilter;
+                    m_selectedIndex = 0;
+                } else {
+                    m_searchQuery.clear();
+                    refreshTodos();
+                }
+                done = true;
+                return true;
+            }
+            return false;
+        });
+        
+        m_screen.Loop(dialog_comp);
     }
 }
 
 void App::showHelp() {
     bool done = false;
     
-    auto help_ui = Renderer([&]() {
-        Elements content;
-        content.push_back(text("  HELP - KEYBOARD SHORTCUTS  ") | bold);
-        content.push_back(separator());
-        content.push_back(text("  n     - Add new todo"));
-        content.push_back(text("  e     - Edit selected todo"));
-        content.push_back(text("  d     - Delete selected todo"));
-        content.push_back(text("  t     - Toggle completion status"));
-        content.push_back(text("  f     - Filter (Active ↔ Completed)"));
-        content.push_back(text("  s     - Search todos"));
-        content.push_back(text("  ↑/↓   - Navigate list"));
-        content.push_back(text("  h/?   - Show this help"));
-        content.push_back(text("  q     - Quit application"));
-        content.push_back(text(""));
-        content.push_back(separator());
-        content.push_back(text("  Priority: [H]=High [M]=Medium [L]=Low") | dim);
-        content.push_back(text("  Press any key to continue...") | dim);
+    while (!done) {
+        auto help_ui = Renderer([&]() {
+            Elements content;
+            content.push_back(text("  HELP - KEYBOARD SHORTCUTS  ") | bold);
+            content.push_back(separator());
+            content.push_back(text("  n     - Add new todo"));
+            content.push_back(text("  e     - Edit selected todo"));
+            content.push_back(text("  d     - Delete selected todo"));
+            content.push_back(text("  t     - Toggle completion status"));
+            content.push_back(text("  f     - Filter (Active ↔ Completed)"));
+            content.push_back(text("  s     - Search todos"));
+            content.push_back(text("  ↑/↓   - Navigate list"));
+            content.push_back(text("  h/?   - Show this help"));
+            content.push_back(text("  q     - Quit application"));
+            content.push_back(text(""));
+            content.push_back(separator());
+            content.push_back(text("  Priority: [H]=High [M]=Medium [L]=Low") | dim);
+            content.push_back(text("  Press any key to continue...") | dim);
+            
+            return vbox(content) | border;
+        });
         
-        return vbox(content) | border;
-    });
-    
-    auto help_comp = CatchEvent(help_ui, [&](Event) {
-        done = true;
-        m_showHelp = false;
-        return true;
-    });
-    
-    bool show = true;
-    auto dialog = Modal(help_comp, help_comp, &show);
-    
-    while (show) {
-        m_screen.Loop(dialog);
+        auto help_comp = CatchEvent(help_ui, [&](Event) {
+            done = true;
+            m_showHelp = false;
+            return true;
+        });
+        
+        m_screen.Loop(help_comp);
     }
 }
