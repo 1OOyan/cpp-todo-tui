@@ -30,7 +30,7 @@ public:
 private:
     void initSchema();
     std::string m_dbPath;
-    sqlite3* m_db; // SQLite database handle
+    sqlite3* m_db;
 };
 
 #endif // DATABASE_HPP

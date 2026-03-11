@@ -1,5 +1,4 @@
 #include "database.hpp"
-#include <sqlite3.h>
 #include <iostream>
 #include <sstream>
 #include <iomanip>

@@ -29,10 +29,10 @@ struct Todo {
 
     std::string getPriorityString() const {
         switch (priority) {
-            case Priority::Low: return "Low";
-            case Priority::Medium: return "Medium";
-            case Priority::High: return "High";
-            default: return "Unknown";
+            case Priority::Low: return "LOW";
+            case Priority::Medium: return "MEDIUM";
+            case Priority::High: return "HIGH";
+            default: return "UNKNOWN";
         }
     }
 
