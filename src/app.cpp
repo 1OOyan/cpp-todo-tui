@@ -6,7 +6,6 @@
 #include <sstream>
 #include <algorithm>
 #include <functional>
-#include <limits>
 
 using namespace ftxui;
 
@@ -48,7 +47,7 @@ void App::run() {
     });
     
     auto main_component = CatchEvent(main_ui, [this](Event event) {
-        // Global quit
+        // Global quit (only in main view, not in dialogs)
         if (event == Event::Character('q')) {
             m_screen.ExitLoopClosure();
             return true;
@@ -231,7 +230,8 @@ void App::addTodo() {
     bool error = false;
     std::string errorMsg;
     
-    auto input_desc = Input(&description, "Description: [Enter to confirm]");
+    // Create input component with proper focus
+    auto input_desc = Input(&description, "Description:");
     
     auto add_ui = Renderer([this, &description, &selectedPriority, &input_desc, &error, &errorMsg]() {
         std::string prioText;
@@ -260,7 +260,14 @@ void App::addTodo() {
         return vbox(content) | border;
     });
     
-    auto add_comp = CatchEvent(add_ui, [&](Event event) {
+    auto add_comp = CatchEvent(Animator(input_desc->Render()), [&](Event event) {
+        // Handle ESC to cancel
+        if (event == Event::Escape) {
+            done = true;
+            return true;
+        }
+        
+        // Handle Enter to confirm
         if (event == Event::Return) {
             if (description.empty()) {
                 error = true;
@@ -276,10 +283,7 @@ void App::addTodo() {
             done = true;
             return true;
         }
-        if (event == Event::Escape) {
-            done = true;
-            return true;
-        }
+        
         // Priority selection
         if (event == Event::Character('1')) {
             selectedPriority = 1;
@@ -296,11 +300,16 @@ void App::addTodo() {
             error = false;
             return true;
         }
+        
+        // Let Input component handle its own events
         return false;
     });
     
+    // Use Modal to properly handle the dialog
+    auto dialog = Modal(add_comp, " ");
+    
     while (!done) {
-        m_screen.Loop(add_comp);
+        m_screen.Loop(dialog);
     }
 }
 
@@ -314,7 +323,7 @@ void App::editTodo() {
     bool error = false;
     std::string errorMsg;
     
-    auto input_desc = Input(&description, "Description: [Enter to confirm]");
+    auto input_desc = Input(&description, "Description:");
     
     auto edit_ui = Renderer([this, &description, &selectedPriority, &input_desc, &error, &errorMsg]() {
         std::string prioText;
@@ -345,6 +354,11 @@ void App::editTodo() {
     });
     
     auto edit_comp = CatchEvent(edit_ui, [&](Event event) {
+        if (event == Event::Escape) {
+            done = true;
+            return true;
+        }
+        
         if (event == Event::Return) {
             if (description.empty()) {
                 error = true;
@@ -359,10 +373,7 @@ void App::editTodo() {
             done = true;
             return true;
         }
-        if (event == Event::Escape) {
-            done = true;
-            return true;
-        }
+        
         // Priority selection
         if (event == Event::Character('1')) {
             selectedPriority = 1;
@@ -382,8 +393,10 @@ void App::editTodo() {
         return false;
     });
     
+    auto dialog = Modal(edit_comp, " ");
+    
     while (!done) {
-        m_screen.Loop(edit_comp);
+        m_screen.Loop(dialog);
     }
 }
 
@@ -415,8 +428,10 @@ void App::deleteTodo() {
         return true;
     });
     
+    auto dialog = Modal(confirm_comp, " ");
+    
     while (!done) {
-        m_screen.Loop(confirm_comp);
+        m_screen.Loop(dialog);
     }
 }
 
@@ -467,7 +482,7 @@ void App::searchTodos() {
     std::string query;
     bool done = false;
     
-    auto input_query = Input(&query, "Search (Esc to cancel): ");
+    auto input_query = Input(&query, "Search:");
     
     auto search_ui = Renderer([&]() {
         return vbox({
@@ -481,6 +496,13 @@ void App::searchTodos() {
     });
     
     auto search_comp = CatchEvent(search_ui, [&](Event event) {
+        if (event == Event::Escape) {
+            m_searchQuery.clear();
+            refreshTodos();
+            done = true;
+            return true;
+        }
+        
         if (event == Event::Return) {
             if (!query.empty()) {
                 m_searchQuery = query;
@@ -498,17 +520,13 @@ void App::searchTodos() {
             done = true;
             return true;
         }
-        if (event == Event::Escape) {
-            m_searchQuery.clear();
-            refreshTodos();
-            done = true;
-            return true;
-        }
         return false;
     });
     
+    auto dialog = Modal(search_comp, " ");
+    
     while (!done) {
-        m_screen.Loop(search_comp);
+        m_screen.Loop(dialog);
     }
 }
 
@@ -540,7 +558,9 @@ void App::showHelp() {
         return true;
     });
     
+    auto dialog = Modal(help_comp, " ");
+    
     while (!done) {
-        m_screen.Loop(help_comp);
+        m_screen.Loop(dialog);
     }
 }
