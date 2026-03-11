@@ -48,7 +48,7 @@ void App::run() {
     });
     
     auto main_component = CatchEvent(main_ui, [this](Event event) {
-        // Global quit
+        // Global quit (only in main view)
         if (event == Event::Character('q') && m_dialogState == DialogState::None) {
             m_screen.ExitLoopClosure();
             return true;
@@ -95,6 +95,18 @@ void App::run() {
                 m_dialogError.clear();
                 return true;
             }
+            // Handle text input
+            if (event.is_character()) {
+                m_dialogDescription += event.character();
+                m_dialogError.clear();
+                return true;
+            }
+            if (event == Event::Backspace) {
+                if (!m_dialogDescription.empty()) {
+                    m_dialogDescription.pop_back();
+                }
+                return true;
+            }
             return false;
         }
         
@@ -131,6 +143,18 @@ void App::run() {
                 m_dialogError.clear();
                 return true;
             }
+            // Handle text input
+            if (event.is_character()) {
+                m_dialogDescription += event.character();
+                m_dialogError.clear();
+                return true;
+            }
+            if (event == Event::Backspace) {
+                if (!m_dialogDescription.empty()) {
+                    m_dialogDescription.pop_back();
+                }
+                return true;
+            }
             return false;
         }
         
@@ -161,6 +185,17 @@ void App::run() {
                 }
                 m_dialogState = DialogState::None;
                 m_dialogSearchQuery.clear();
+                return true;
+            }
+            // Handle text input
+            if (event.is_character()) {
+                m_dialogSearchQuery += event.character();
+                return true;
+            }
+            if (event == Event::Backspace) {
+                if (!m_dialogSearchQuery.empty()) {
+                    m_dialogSearchQuery.pop_back();
+                }
                 return true;
             }
             return false;
@@ -370,24 +405,24 @@ ftxui::Element App::renderAddDialog() {
         case 3: prioText = "High"; break;
     }
     
+    // Create a centered modal dialog
+    std::string inputText = m_dialogDescription;
+    if (inputText.empty()) {
+        inputText = "Type description here...";
+    }
+    
     Elements content;
     content.push_back(text("Add New Todo") | bold);
     content.push_back(separator());
     content.push_back(text("Description:"));
-    
-    // Use Input component - it will automatically capture focus
-    static std::string* descPtr = nullptr;
-    static Component inputComp = nullptr;
-    if (descPtr != &m_dialogDescription || !inputComp) {
-        descPtr = &m_dialogDescription;
-        inputComp = Input(descPtr, "Description:");
-    }
-    content.push_back(inputComp->Render());
+    content.push_back(text("┌" + std::string(50, '─') + "┐"));
+    content.push_back(text("│ " + inputText + std::string(50 - inputText.length(), ' ') + "│") | color(Color::White));
+    content.push_back(text("└" + std::string(50, '─') + "┘"));
     content.push_back(text(""));
     content.push_back(separator());
     content.push_back(text("Priority (1=Low, 2=Medium, 3=High): ") | dim);
     content.push_back(text(prioText) | bold);
-    content.push_back(text("  Press 1, 2, or 3 to change, Enter to save, Esc to cancel") | dim);
+    content.push_back(text("  Type text, 1/2/3 for priority, Enter to save, Esc to cancel") | dim);
     
     if (!m_dialogError.empty()) {
         content.push_back(text(""));
@@ -395,7 +430,8 @@ ftxui::Element App::renderAddDialog() {
         content.push_back(text(m_dialogError) | color(Color::Red));
     }
     
-    return vbox(content) | border;
+    // Wrap in a box and center it
+    return vbox(content) | border | center | window(text("Add New Todo"), filler());
 }
 
 ftxui::Element App::renderEditDialog() {
@@ -406,24 +442,23 @@ ftxui::Element App::renderEditDialog() {
         case 3: prioText = "High"; break;
     }
     
+    std::string inputText = m_dialogDescription;
+    if (inputText.empty()) {
+        inputText = "Type description here...";
+    }
+    
     Elements content;
     content.push_back(text("Edit Todo") | bold);
     content.push_back(separator());
     content.push_back(text("Description:"));
-    
-    static std::string* descPtr = nullptr;
-    static Component inputComp = nullptr;
-    if (descPtr != &m_dialogDescription || !inputComp) {
-        descPtr = &m_dialogDescription;
-        inputComp = Input(descPtr, "Description:");
-    }
-    content.push_back(inputComp->Render());
+    content.push_back(text("┌" + std::string(50, '─') + "┐"));
+    content.push_back(text("│ " + inputText + std::string(50 - inputText.length(), ' ') + "│") | color(Color::White));
+    content.push_back(text("└" + std::string(50, '─') + "┘"));
     content.push_back(text(""));
     content.push_back(separator());
     content.push_back(text("Current Priority: ") | dim);
     content.push_back(text(prioText) | bold);
-    content.push_back(text("  Press 1, 2, or 3 to change priority") | dim);
-    content.push_back(text("  Press Enter to save, Esc to cancel") | dim);
+    content.push_back(text("  Type text, 1/2/3 for priority, Enter to save, Esc to cancel") | dim);
     
     if (!m_dialogError.empty()) {
         content.push_back(text(""));
@@ -431,7 +466,7 @@ ftxui::Element App::renderEditDialog() {
         content.push_back(text(m_dialogError) | color(Color::Red));
     }
     
-    return vbox(content) | border;
+    return vbox(content) | border | center | window(text("Edit Todo"), filler());
 }
 
 ftxui::Element App::renderDeleteDialog() {
@@ -439,33 +474,37 @@ ftxui::Element App::renderDeleteDialog() {
     content.push_back(text("Delete Todo?") | bold | color(Color::Red));
     content.push_back(separator());
     if (m_dialogTodoIndex >= 0 && m_dialogTodoIndex < static_cast<int>(m_todos.size())) {
-        content.push_back(text("\"" + m_todos[m_dialogTodoIndex].description + "\""));
+        std::string desc = m_todos[m_dialogTodoIndex].description;
+        if (desc.length() > 40) {
+            desc = desc.substr(0, 37) + "...";
+        }
+        content.push_back(text("\"" + desc + "\""));
     }
     content.push_back(text(""));
     content.push_back(separator());
-    content.push_back(text("Press Y to confirm, N or Esc to cancel") | dim);
+    content.push_back(text("Press Y to confirm, Esc to cancel") | dim);
     
-    return vbox(content) | border;
+    return vbox(content) | border | center | window(text("Delete"), filler());
 }
 
 ftxui::Element App::renderSearchDialog() {
+    std::string inputText = m_dialogSearchQuery;
+    if (inputText.empty()) {
+        inputText = "Type search text...";
+    }
+    
     Elements content;
     content.push_back(text("Search Todos") | bold);
     content.push_back(separator());
     content.push_back(text("Enter text to search:"));
-    
-    static std::string* queryPtr = nullptr;
-    static Component inputComp = nullptr;
-    if (queryPtr != &m_dialogSearchQuery || !inputComp) {
-        queryPtr = &m_dialogSearchQuery;
-        inputComp = Input(queryPtr, "Search:");
-    }
-    content.push_back(inputComp->Render());
+    content.push_back(text("┌" + std::string(50, '─') + "┐"));
+    content.push_back(text("│ " + inputText + std::string(50 - inputText.length(), ' ') + "│") | color(Color::White));
+    content.push_back(text("└" + std::string(50, '─') + "┘"));
     content.push_back(text(""));
     content.push_back(separator());
-    content.push_back(text("Press Enter to search, Esc to cancel") | dim);
+    content.push_back(text("Type to search, Enter to confirm, Esc to cancel") | dim);
     
-    return vbox(content) | border;
+    return vbox(content) | border | center | window(text("Search"), filler());
 }
 
 ftxui::Element App::renderHelpDialog() {
@@ -486,33 +525,13 @@ ftxui::Element App::renderHelpDialog() {
     content.push_back(text("  Priority: [H]=High [M]=Medium [L]=Low") | dim);
     content.push_back(text("  Press any key to continue...") | dim);
     
-    return vbox(content) | border;
+    return vbox(content) | border | center | window(text("Help"), filler());
 }
 
-void App::addTodo() {
-    // Handled in run() loop
-}
-
-void App::editTodo() {
-    // Handled in run() loop
-}
-
-void App::deleteTodo() {
-    // Handled in run() loop
-}
-
-void App::toggleTodo() {
-    // Handled in run() loop
-}
-
-void App::filterTodos() {
-    // Handled in run() loop
-}
-
-void App::searchTodos() {
-    // Handled in run() loop
-}
-
-void App::showHelp() {
-    // Handled in run() loop
-}
+void App::addTodo() {}
+void App::editTodo() {}
+void App::deleteTodo() {}
+void App::toggleTodo() {}
+void App::filterTodos() {}
+void App::searchTodos() {}
+void App::showHelp() {}
