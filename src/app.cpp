@@ -219,19 +219,19 @@ ftxui::Element App::renderTodoList() {
 
 void App::addTodo() {
     std::string description;
-    int priority = 1;
+    std::string priorityStr = "1";
     bool done = false;
     
     auto input_desc = Input(&description, "Description:");
-    auto input_prio = Input(&priority, "Priority (1-3):");
+    auto input_prio = Input(&priorityStr, "Priority (1-3):");
     
-    auto add_ui = Renderer([this, &description, &priority, &input_desc, &input_prio]() {
+    auto add_ui = Renderer([this, &description, &priorityStr, &input_desc, &input_prio]() {
         return vbox({
             text("Add New Todo") | bold,
             separator(),
             text("Description:"),
             input_desc->Render(),
-            text("Priority (1=Low, 2=Medium, 3=High): " + std::to_string(priority)),
+            text("Priority (1=Low, 2=Medium, 3=High): " + priorityStr),
             separator(),
             text("Press Enter to save, Esc to cancel") | dim
         }) | border;
@@ -240,9 +240,10 @@ void App::addTodo() {
     auto add_comp = CatchEvent(add_ui, [&](Event event) {
         if (event == Event::Return) {
             if (!description.empty()) {
+                int priority = std::max(1, std::min(3, std::stoi(priorityStr)));
                 todo::Todo newTodo;
                 newTodo.description = description;
-                newTodo.priority = static_cast<todo::Priority>(std::max(1, std::min(3, priority)));
+                newTodo.priority = static_cast<todo::Priority>(priority);
                 m_db.createTodo(newTodo);
                 refreshTodos();
             }
@@ -266,18 +267,18 @@ void App::editTodo() {
     
     todo::Todo& todo = m_todos[m_selectedIndex];
     std::string description = todo.description;
-    int priority = static_cast<int>(todo.priority);
+    std::string priorityStr = std::to_string(static_cast<int>(todo.priority));
     bool done = false;
     
     auto input_desc = Input(&description, "Description:");
     
-    auto edit_ui = Renderer([this, &description, &priority, &input_desc]() {
+    auto edit_ui = Renderer([this, &description, &priorityStr, &input_desc]() {
         return vbox({
             text("Edit Todo") | bold,
             separator(),
             text("Description:"),
             input_desc->Render(),
-            text("Priority (1=Low, 2=Medium, 3=High): " + std::to_string(priority)),
+            text("Priority (1=Low, 2=Medium, 3=High): " + priorityStr),
             separator(),
             text("Press Enter to save, Esc to cancel") | dim
         }) | border;
@@ -286,8 +287,9 @@ void App::editTodo() {
     auto edit_comp = CatchEvent(edit_ui, [&](Event event) {
         if (event == Event::Return) {
             if (!description.empty()) {
+                int priority = std::max(1, std::min(3, std::stoi(priorityStr)));
                 todo.description = description;
-                todo.priority = static_cast<todo::Priority>(std::max(1, std::min(3, priority)));
+                todo.priority = static_cast<todo::Priority>(priority);
                 m_db.updateTodo(todo);
                 refreshTodos();
             }
@@ -310,7 +312,6 @@ void App::deleteTodo() {
     if (m_selectedIndex < 0 || m_selectedIndex >= static_cast<int>(m_todos.size())) return;
     
     const auto& todo = m_todos[m_selectedIndex];
-    bool confirmed = false;
     bool done = false;
     
     auto confirm_ui = Renderer([&]() {
@@ -330,7 +331,6 @@ void App::deleteTodo() {
                 m_selectedIndex = m_todos.empty() ? 0 : static_cast<int>(m_todos.size()) - 1;
             }
             refreshTodos();
-            confirmed = true;
         }
         done = true;
         return true;
