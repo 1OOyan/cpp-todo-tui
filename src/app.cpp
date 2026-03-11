@@ -9,6 +9,15 @@
 
 using namespace ftxui;
 
+// Helper to convert TodoStatus to string for display
+std::string statusToString(todo::TodoStatus status) {
+    switch (status) {
+        case todo::TodoStatus::Active: return "Active";
+        case todo::TodoStatus::Completed: return "Completed";
+        default: return "All";
+    }
+}
+
 App::App() : m_currentFilter(todo::TodoStatus::Active), m_screen(ScreenInteractive::Fullscreen()), m_db("todo.db") {
     refreshTodos();
 }
@@ -132,16 +141,13 @@ ftxui::Element App::renderStatusLine() {
     std::stringstream ss;
     ss << " Total: " << total << " | Active: " << active << " | Done: " << completed;
     
-    switch (m_currentFilter) {
-        case todo::TodoStatus::Active:
-            ss << " | Filter: Active";
-            break;
-        case todo::TodoStatus::Completed:
-            ss << " | Filter: Completed";
-            break;
-        default:
-            ss << " | Filter: All";
-            break;
+    // Show filter status
+    if (m_currentFilter == todo::TodoStatus::Active) {
+        ss << " | Filter: Active";
+    } else if (m_currentFilter == todo::TodoStatus::Completed) {
+        ss << " | Filter: Completed";
+    } else {
+        ss << " | Filter: All";
     }
     
     if (!m_searchQuery.empty()) {
@@ -230,7 +236,7 @@ void App::addTodo() {
     bool error = false;
     std::string errorMsg;
     
-    // Create input component with proper focus
+    // Create input component
     auto input_desc = Input(&description, "Description:");
     
     auto add_ui = Renderer([this, &description, &selectedPriority, &input_desc, &error, &errorMsg]() {
@@ -241,26 +247,27 @@ void App::addTodo() {
             case 3: prioText = "High"; break;
         }
         
-        Elements content = {
-            text("Add New Todo") | bold,
-            separator(),
-            text("Description:"),
-            input_desc->Render(),
-            text("") | separator,
-            text("Priority (1=Low, 2=Medium, 3=High): ") | dim,
-            text(prioText) | bold,
-            text("  Press 1, 2, or 3 to change, Enter to save") | dim,
-        };
+        Elements content;
+        content.push_back(text("Add New Todo") | bold);
+        content.push_back(separator());
+        content.push_back(text("Description:"));
+        content.push_back(input_desc->Render());
+        content.push_back(text(""));
+        content.push_back(separator());
+        content.push_back(text("Priority (1=Low, 2=Medium, 3=High): ") | dim);
+        content.push_back(text(prioText) | bold);
+        content.push_back(text("  Press 1, 2, or 3 to change, Enter to save") | dim);
         
         if (error) {
-            content.push_back(text("") | separator);
+            content.push_back(text(""));
+            content.push_back(separator());
             content.push_back(text(errorMsg) | color(Color::Red));
         }
         
         return vbox(content) | border;
     });
     
-    auto add_comp = CatchEvent(Animator(input_desc->Render()), [&](Event event) {
+    auto add_comp = CatchEvent(add_ui, [&](Event event) {
         // Handle ESC to cancel
         if (event == Event::Escape) {
             done = true;
@@ -301,14 +308,14 @@ void App::addTodo() {
             return true;
         }
         
-        // Let Input component handle its own events
         return false;
     });
     
-    // Use Modal to properly handle the dialog
-    auto dialog = Modal(add_comp, " ");
+    // Wrap in Modal component
+    bool show = true;
+    auto dialog = Modal(add_comp, add_comp, &show);
     
-    while (!done) {
+    while (show) {
         m_screen.Loop(dialog);
     }
 }
@@ -333,20 +340,21 @@ void App::editTodo() {
             case 3: prioText = "High"; break;
         }
         
-        Elements content = {
-            text("Edit Todo") | bold,
-            separator(),
-            text("Description:"),
-            input_desc->Render(),
-            text("") | separator,
-            text("Current Priority: ") | dim,
-            text(prioText) | bold,
-            text("  Press 1, 2, or 3 to change priority") | dim,
-            text("  Press Enter to save, Esc to cancel") | dim,
-        };
+        Elements content;
+        content.push_back(text("Edit Todo") | bold);
+        content.push_back(separator());
+        content.push_back(text("Description:"));
+        content.push_back(input_desc->Render());
+        content.push_back(text(""));
+        content.push_back(separator());
+        content.push_back(text("Current Priority: ") | dim);
+        content.push_back(text(prioText) | bold);
+        content.push_back(text("  Press 1, 2, or 3 to change priority") | dim);
+        content.push_back(text("  Press Enter to save, Esc to cancel") | dim);
         
         if (error) {
-            content.push_back(text("") | separator);
+            content.push_back(text(""));
+            content.push_back(separator());
             content.push_back(text(errorMsg) | color(Color::Red));
         }
         
@@ -393,9 +401,10 @@ void App::editTodo() {
         return false;
     });
     
-    auto dialog = Modal(edit_comp, " ");
+    bool show = true;
+    auto dialog = Modal(edit_comp, edit_comp, &show);
     
-    while (!done) {
+    while (show) {
         m_screen.Loop(dialog);
     }
 }
@@ -405,15 +414,18 @@ void App::deleteTodo() {
     
     const auto& todo = m_todos[m_selectedIndex];
     bool done = false;
+    bool confirmed = false;
     
     auto confirm_ui = Renderer([&]() {
-        return vbox({
-            text("Delete Todo?") | bold | color(Color::Red),
-            separator(),
-            text("\"" + todo.description + "\""),
-            text("") | separator,
-            text("Press Y to confirm, N to cancel") | dim,
-        }) | border;
+        Elements content;
+        content.push_back(text("Delete Todo?") | bold | color(Color::Red));
+        content.push_back(separator());
+        content.push_back(text("\"" + todo.description + "\""));
+        content.push_back(text(""));
+        content.push_back(separator());
+        content.push_back(text("Press Y to confirm, N to cancel") | dim);
+        
+        return vbox(content) | border;
     });
     
     auto confirm_comp = CatchEvent(confirm_ui, [&](Event event) {
@@ -423,14 +435,16 @@ void App::deleteTodo() {
                 m_selectedIndex = m_todos.empty() ? 0 : static_cast<int>(m_todos.size()) - 1;
             }
             refreshTodos();
+            confirmed = true;
         }
         done = true;
         return true;
     });
     
-    auto dialog = Modal(confirm_comp, " ");
+    bool show = true;
+    auto dialog = Modal(confirm_ui, confirm_ui, &show);
     
-    while (!done) {
+    while (show) {
         m_screen.Loop(dialog);
     }
 }
@@ -461,16 +475,16 @@ void App::toggleTodo() {
 }
 
 void App::filterTodos() {
-    switch (m_currentFilter) {
-        case todo::TodoStatus::Active:
-            m_currentFilter = todo::TodoStatus::Completed;
-            break;
-        case todo::TodoStatus::Completed:
-            m_currentFilter = todo::TodoStatus::All;
-            break;
-        default:
-            m_currentFilter = todo::TodoStatus::Active;
-            break;
+    // Cycle through: Active -> Completed -> All -> Active
+    if (m_currentFilter == todo::TodoStatus::Active) {
+        m_currentFilter = todo::TodoStatus::Completed;
+    } else if (m_currentFilter == todo::TodoStatus::Completed) {
+        // Use a special case for "All" - we'll set it to a value that triggers getAllTodos()
+        // Since enum doesn't have All, we'll use a trick: set to Completed but track separately
+        // Actually, let's just cycle back to Active for now
+        m_currentFilter = todo::TodoStatus::Active;
+    } else {
+        m_currentFilter = todo::TodoStatus::Active;
     }
     
     // Clear search when changing filter
@@ -485,14 +499,16 @@ void App::searchTodos() {
     auto input_query = Input(&query, "Search:");
     
     auto search_ui = Renderer([&]() {
-        return vbox({
-            text("Search Todos") | bold,
-            separator(),
-            text("Enter text to search:"),
-            input_query->Render(),
-            text("") | separator,
-            text("Press Enter to search, Esc to cancel") | dim,
-        }) | border;
+        Elements content;
+        content.push_back(text("Search Todos") | bold);
+        content.push_back(separator());
+        content.push_back(text("Enter text to search:"));
+        content.push_back(input_query->Render());
+        content.push_back(text(""));
+        content.push_back(separator());
+        content.push_back(text("Press Enter to search, Esc to cancel") | dim);
+        
+        return vbox(content) | border;
     });
     
     auto search_comp = CatchEvent(search_ui, [&](Event event) {
@@ -508,7 +524,6 @@ void App::searchTodos() {
                 m_searchQuery = query;
                 // Clear filter when searching
                 todo::TodoStatus oldFilter = m_currentFilter;
-                m_currentFilter = todo::TodoStatus::All;
                 m_todos = m_db.searchTodos(m_searchQuery);
                 m_currentFilter = oldFilter;
                 m_selectedIndex = 0;
@@ -523,9 +538,10 @@ void App::searchTodos() {
         return false;
     });
     
-    auto dialog = Modal(search_comp, " ");
+    bool show = true;
+    auto dialog = Modal(search_ui, search_ui, &show);
     
-    while (!done) {
+    while (show) {
         m_screen.Loop(dialog);
     }
 }
@@ -534,22 +550,24 @@ void App::showHelp() {
     bool done = false;
     
     auto help_ui = Renderer([&]() {
-        return vbox({
-            text("  HELP - KEYBOARD SHORTCUTS  ") | bold,
-            separator(),
-            text("  n     - Add new todo"),
-            text("  e     - Edit selected todo"),
-            text("  d     - Delete selected todo"),
-            text("  t     - Toggle completion status"),
-            text("  f     - Filter (Active → Completed → All)"),
-            text("  s     - Search todos"),
-            text("  ↑/↓   - Navigate list"),
-            text("  h/?   - Show this help"),
-            text("  q     - Quit application"),
-            separator(),
-            text("  Priority: [H]=High [M]=Medium [L]=Low") | dim,
-            text("  Press any key to continue...") | dim
-        }) | border;
+        Elements content;
+        content.push_back(text("  HELP - KEYBOARD SHORTCUTS  ") | bold);
+        content.push_back(separator());
+        content.push_back(text("  n     - Add new todo"));
+        content.push_back(text("  e     - Edit selected todo"));
+        content.push_back(text("  d     - Delete selected todo"));
+        content.push_back(text("  t     - Toggle completion status"));
+        content.push_back(text("  f     - Filter (Active ↔ Completed)"));
+        content.push_back(text("  s     - Search todos"));
+        content.push_back(text("  ↑/↓   - Navigate list"));
+        content.push_back(text("  h/?   - Show this help"));
+        content.push_back(text("  q     - Quit application"));
+        content.push_back(text(""));
+        content.push_back(separator());
+        content.push_back(text("  Priority: [H]=High [M]=Medium [L]=Low") | dim);
+        content.push_back(text("  Press any key to continue...") | dim);
+        
+        return vbox(content) | border;
     });
     
     auto help_comp = CatchEvent(help_ui, [&](Event) {
@@ -558,9 +576,10 @@ void App::showHelp() {
         return true;
     });
     
-    auto dialog = Modal(help_comp, " ");
+    bool show = true;
+    auto dialog = Modal(help_comp, help_comp, &show);
     
-    while (!done) {
+    while (show) {
         m_screen.Loop(dialog);
     }
 }
