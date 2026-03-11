@@ -4,6 +4,7 @@
 #include <sstream>
 #include <clocale>
 #include <cstring>
+#include <unistd.h>
 
 App::App() : m_db("todo.db") {
     refreshTodos();
@@ -22,7 +23,7 @@ void App::refreshTodos() {
     }
     
     if (m_selectedIndex >= static_cast<int>(m_todos.size())) {
-        m_selectedIndex = m_todos.empty() ? 0 : m_todos.size() - 1;
+        m_selectedIndex = m_todos.empty() ? 0 : static_cast<int>(m_todos.size()) - 1;
     }
     if (m_selectedIndex < 0) m_selectedIndex = 0;
     
@@ -36,7 +37,9 @@ void App::refreshTodos() {
 }
 
 void App::run() {
-    // ncurses is already initialized in main()
+    // Main loop with non-blocking input
+    nodelay(stdscr, TRUE);
+    
     while (true) {
         showMainScreen();
         int ch = getch();
@@ -44,6 +47,7 @@ void App::run() {
         switch (ch) {
             case 'q':
             case KEY_F(10):
+            case 27: // ESC
                 return;
             case 'n':
                 showAddDialog();
@@ -73,133 +77,231 @@ void App::run() {
             case KEY_DOWN:
                 if (m_selectedIndex < static_cast<int>(m_todos.size()) - 1) m_selectedIndex++;
                 break;
+            case KEY_PPAGE: // Page Up
+                m_scrollOffset = std::max(0, m_scrollOffset - (m_screenHeight - 6));
+                break;
+            case KEY_NPAGE: // Page Down
+                m_scrollOffset = std::min(static_cast<int>(m_todos.size()) - (m_screenHeight - 6), 
+                                         m_scrollOffset + (m_screenHeight - 6));
+                break;
             case KEY_RESIZE:
                 getmaxyx(stdscr, m_screenHeight, m_screenWidth);
                 break;
         }
+        
+        // Small delay to prevent CPU spinning
+        napms(30);
     }
 }
 
 void App::showMainScreen() {
+    // Clear the screen
     erase();
+    
+    // Draw all UI elements
     renderHeader();
     showTodoList(m_todos);
-    renderFooter();
     renderStatusLine();
+    renderFooter();
+    
+    // Refresh the screen
     refresh();
 }
 
 void App::renderHeader() {
-    attron(COLOR_PAIR(1));
-    mvhline(0, 0, ACS_HLINE, m_screenWidth);
-    mvprintw(1, 2, "  TODO LIST  ");
-    attroff(COLOR_PAIR(1));
-    mvhline(2, 0, ACS_HLINE, m_screenWidth);
+    // Draw header box
+    int y = 0;
+    attron(A_BOLD | COLOR_PAIR(1));
+    
+    // Top border
+    mvhline(y++, 0, ACS_HLINE, m_screenWidth);
+    
+    // Title
+    mvprintw(y++, 2, " ╔════════════════════════════════════════════════════════════════════════════╗ ");
+    mvprintw(y++, 2, " ║                    ★  C++ TODO LIST  ★                                     ║ ");
+    mvprintw(y++, 2, " ╚════════════════════════════════════════════════════════════════════════════╝ ");
+    
+    // Bottom border
+    mvhline(y++, 0, ACS_HLINE, m_screenWidth);
+    
+    attroff(A_BOLD | COLOR_PAIR(1));
 }
 
 void App::renderFooter() {
-    int footerY = m_screenHeight - 3;
+    int footerY = m_screenHeight - 2;
+    
+    // Draw footer box
+    attron(A_BOLD | COLOR_PAIR(1));
     mvhline(footerY, 0, ACS_HLINE, m_screenWidth);
-    attron(COLOR_PAIR(1));
-    mvprintw(footerY + 1, 2, " n:New  e:Edit  d:Delete  t:Toggle  f:Filter  s:Search  h:Help  q:Quit ");
-    attroff(COLOR_PAIR(1));
+    
+    // Help text
+    mvprintw(footerY + 1, 2, " [n]New  [e]Edit  [d]Delete  [t]Toggle  [f]Filter  [s]Search  [h]Help  [q]Quit ");
+    
+    attroff(A_BOLD | COLOR_PAIR(1));
 }
 
 void App::renderStatusLine() {
-    int statusY = m_screenHeight - 2;
+    int statusY = m_screenHeight - 3;
     std::stringstream ss;
+    
     int total = m_db.getTotalCount();
     int active = m_db.getActiveCount();
     int completed = m_db.getCompletedCount();
-    ss << " Total: " << total << " | Active: " << active << " | Completed: " << completed;
+    
+    ss << " 📊 Stats: Total=" << total << " | Active=" << active << " | Done=" << completed;
+    
+    // Filter info
     switch (m_currentFilter) {
-        case todo::TodoStatus::Active: ss << " | Filter: Active"; break;
-        case todo::TodoStatus::Completed: ss << " | Filter: Completed"; break;
-        default: ss << " | Filter: All"; break;
+        case todo::TodoStatus::Active:
+            ss << " | 🔍 Filter: Active";
+            break;
+        case todo::TodoStatus::Completed:
+            ss << " | ✅ Filter: Completed";
+            break;
+        default:
+            ss << " | 🔍 Filter: All";
+            break;
     }
-    if (!m_searchQuery.empty()) ss << " | Search: " << m_searchQuery;
-    mvprintw(statusY, 2, "%s", ss.str().c_str());
+    
+    if (!m_searchQuery.empty()) {
+        ss << " | 🔎 Search: \"" << m_searchQuery << "\"";
+    }
+    
+    attron(A_REVERSE);
+    mvprintw(statusY, 2, "%-*s", m_screenWidth - 4, ss.str().c_str());
+    attroff(A_REVERSE);
 }
 
 void App::showTodoList(const std::vector<todo::Todo>& todos) {
     int listStartY = 3;
     int listHeight = m_screenHeight - 6;
+    
+    // Draw list header
+    attron(A_BOLD);
+    mvprintw(listStartY, 2, " ┌───────────────────────────────────────────────────────────────────────────────┐");
+    mvprintw(listStartY + 1, 3, " │ Status │ Priority │ Task Description                                        │");
+    mvprintw(listStartY + 2, 2, " ├────────┼──────────┼─────────────────────────────────────────────────────────┤");
+    attroff(A_BOLD);
+    
     if (todos.empty()) {
-        mvprintw(listStartY + listHeight / 2, (m_screenWidth - 40) / 2, "No todos yet. Press 'n' to add one!");
+        // Empty state
+        int emptyY = listStartY + listHeight / 2;
+        attron(A_BOLD | COLOR_PAIR(6));
+        mvprintw(emptyY, (m_screenWidth - 40) / 2, "📝 No todos yet! Press [n] to add your first todo.");
+        attroff(A_BOLD | COLOR_PAIR(6));
+        
+        // Draw bottom border
+        mvprintw(listStartY + listHeight - 1, 2, " └───────────────────────────────────────────────────────────────────────────────┘");
         return;
     }
-    int visibleCount = std::min(listHeight, static_cast<int>(todos.size()));
+    
+    int visibleCount = std::min(listHeight - 3, static_cast<int>(todos.size()) - m_scrollOffset);
+    
     for (int i = 0; i < visibleCount; i++) {
         int actualIndex = m_scrollOffset + i;
         if (actualIndex >= static_cast<int>(todos.size())) break;
+        
         const auto& todo = todos[actualIndex];
-        int y = listStartY + i;
-        std::string line = todo.getStatusString() + " ";
+        int y = listStartY + 3 + i;
+        
+        // Check if this is the selected item
+        bool isSelected = (actualIndex == m_selectedIndex);
+        
+        // Draw row background if selected
+        if (isSelected) {
+            attron(COLOR_PAIR(2));
+            mvhline(y, 2, ' ', m_screenWidth - 4);
+        }
+        
+        // Status column
+        std::string status = todo.isCompleted() ? " [x] " : " [ ] ";
+        if (todo.isCompleted()) {
+            attron(COLOR_PAIR(3));
+        }
+        mvprintw(y, 4, "%s", status.c_str());
+        if (todo.isCompleted()) attroff(COLOR_PAIR(3));
+        
+        // Priority column
+        std::string prio, prioColor;
         switch (todo.priority) {
             case todo::Priority::High:
-                line += "[!!!] ";
-                if (has_colors()) attron(COLOR_PAIR(4));
+                prio = " HIGH ";
+                attron(COLOR_PAIR(4));
                 break;
             case todo::Priority::Medium:
-                line += "[--] ";
-                if (has_colors()) attron(COLOR_PAIR(5));
+                prio = " MEDIUM ";
+                attron(COLOR_PAIR(5));
                 break;
             case todo::Priority::Low:
-                line += "[...] ";
-                if (has_colors()) attron(COLOR_PAIR(6));
+                prio = "  LOW  ";
+                attron(COLOR_PAIR(6));
                 break;
         }
-        line += todo.description;
-        if (line.length() > static_cast<size_t>(m_screenWidth - 4)) {
-            line = line.substr(0, m_screenWidth - 7) + "...";
+        mvprintw(y, 11, "%s", prio.c_str());
+        attroff(COLOR_PAIR(4) | COLOR_PAIR(5) | COLOR_PAIR(6));
+        
+        // Description column (truncated)
+        std::string desc = todo.description;
+        int maxDescLen = m_screenWidth - 35;
+        if (desc.length() > static_cast<size_t>(maxDescLen)) {
+            desc = desc.substr(0, maxDescLen - 3) + "...";
         }
-        if (actualIndex == m_selectedIndex) {
-            if (has_colors()) attron(COLOR_PAIR(2));
-            mvhline(y, 0, ' ', m_screenWidth);
-        }
-        if (todo.isCompleted()) {
-            if (has_colors()) attron(COLOR_PAIR(3));
-        }
-        mvprintw(y, 2, "%s", line.c_str());
-        if (todo.isCompleted()) attroff(COLOR_PAIR(3));
-        if (actualIndex == m_selectedIndex) attroff(COLOR_PAIR(2));
+        mvprintw(y, 22, " %-*s", maxDescLen, desc.c_str());
+        
+        // Reset attributes
+        if (isSelected) attroff(COLOR_PAIR(2));
+    }
+    
+    // Draw bottom border
+    mvprintw(listStartY + visibleCount + 2, 2, " └───────────────────────────────────────────────────────────────────────────────┘");
+    
+    // Scroll indicator if needed
+    if (m_scrollOffset > 0) {
+        mvprintw(listStartY + 1, m_screenWidth - 8, " ▲ ");
+    }
+    if (m_scrollOffset + visibleCount < static_cast<int>(todos.size())) {
+        mvprintw(listStartY + visibleCount + 1, m_screenWidth - 8, " ▼ ");
     }
 }
 
 void App::showAddDialog() {
+    // Switch to blocking input for dialog
+    nodelay(stdscr, FALSE);
     echo();
     curs_set(1);
-    nodelay(stdscr, FALSE);
     
-    int dialogY = m_screenHeight / 2 - 4;
-    int dialogX = (m_screenWidth - 60) / 2;
+    int dialogY = std::max(0, m_screenHeight / 2 - 5);
+    int dialogX = std::max(0, (m_screenWidth - 60) / 2);
     
-    // Ensure dialog fits on screen
-    if (dialogY < 0) dialogY = 0;
-    if (dialogX < 0) dialogX = 0;
+    // Clear dialog area
+    for (int i = 0; i < 8; i++) {
+        mvhline(dialogY + i, dialogX, ' ', 60);
+    }
     
-    attron(COLOR_PAIR(1));
+    // Draw dialog box
+    attron(A_BOLD | COLOR_PAIR(1));
     mvhline(dialogY, dialogX, ACS_HLINE, 60);
-    mvhline(dialogY + 6, dialogX, ACS_HLINE, 60);
-    for (int i = 0; i < 7; i++) {
+    mvhline(dialogY + 7, dialogX, ACS_HLINE, 60);
+    for (int i = 0; i < 8; i++) {
         mvvline(dialogY + i, dialogX, ACS_VLINE, 1);
         mvvline(dialogY + i, dialogX + 59, ACS_VLINE, 1);
     }
     mvhline(dialogY, dialogX, ACS_ULCORNER, 1);
     mvhline(dialogY, dialogX + 59, ACS_URCORNER, 1);
-    mvhline(dialogY + 6, dialogX, ACS_LLCORNER, 1);
-    mvhline(dialogY + 6, dialogX + 59, ACS_LRCORNER, 1);
-    mvprintw(dialogY, dialogX + 25, " ADD TODO ");
-    attroff(COLOR_PAIR(1));
+    mvhline(dialogY + 7, dialogX, ACS_LLCORNER, 1);
+    mvhline(dialogY + 7, dialogX + 59, ACS_LRCORNER, 1);
+    mvprintw(dialogY, dialogX + 23, " ADD NEW TODO ");
+    attroff(A_BOLD | COLOR_PAIR(1));
     
-    mvprintw(dialogY + 2, dialogX + 2, "Description: ");
-    mvprintw(dialogY + 4, dialogX + 2, "Priority (1=Low, 2=Medium, 3=High): ");
-    mvprintw(dialogY + 5, dialogX + 2, "Press Enter to save, Esc to cancel");
+    mvprintw(dialogY + 2, dialogX + 3, "Description: ");
+    mvprintw(dialogY + 4, dialogX + 3, "Priority (1=Low, 2=Medium, 3=High): ");
+    mvprintw(dialogY + 5, dialogX + 3, "Press [Enter] to save, [Esc] to cancel");
+    
     refresh();
     
+    // Get description
     char desc[256] = {0};
-    mvprintw(dialogY + 2, dialogX + 16, "                    ");
-    move(dialogY + 2, dialogX + 16);
+    move(dialogY + 2, dialogX + 17);
     getnstr(desc, 255);
     
     if (desc[0] == 27 || strlen(desc) == 0) {
@@ -209,9 +311,9 @@ void App::showAddDialog() {
         return;
     }
     
+    // Get priority
     char prioStr[10] = {0};
-    mvprintw(dialogY + 4, dialogX + 42, "   ");
-    move(dialogY + 4, dialogX + 42);
+    move(dialogY + 4, dialogX + 45);
     getnstr(prioStr, 9);
     
     int prio = strlen(prioStr) > 0 ? std::max(1, std::min(3, atoi(prioStr))) : 1;
@@ -228,39 +330,42 @@ void App::showAddDialog() {
 }
 
 void App::showEditDialog(const todo::Todo& todo) {
+    nodelay(stdscr, FALSE);
     echo();
     curs_set(1);
-    nodelay(stdscr, FALSE);
     
-    int dialogY = m_screenHeight / 2 - 4;
-    int dialogX = (m_screenWidth - 60) / 2;
+    int dialogY = std::max(0, m_screenHeight / 2 - 5);
+    int dialogX = std::max(0, (m_screenWidth - 60) / 2);
     
-    if (dialogY < 0) dialogY = 0;
-    if (dialogX < 0) dialogX = 0;
+    // Clear dialog area
+    for (int i = 0; i < 8; i++) {
+        mvhline(dialogY + i, dialogX, ' ', 60);
+    }
     
-    attron(COLOR_PAIR(1));
+    attron(A_BOLD | COLOR_PAIR(1));
     mvhline(dialogY, dialogX, ACS_HLINE, 60);
-    mvhline(dialogY + 6, dialogX, ACS_HLINE, 60);
-    for (int i = 0; i < 7; i++) {
+    mvhline(dialogY + 7, dialogX, ACS_HLINE, 60);
+    for (int i = 0; i < 8; i++) {
         mvvline(dialogY + i, dialogX, ACS_VLINE, 1);
         mvvline(dialogY + i, dialogX + 59, ACS_VLINE, 1);
     }
     mvhline(dialogY, dialogX, ACS_ULCORNER, 1);
     mvhline(dialogY, dialogX + 59, ACS_URCORNER, 1);
-    mvhline(dialogY + 6, dialogX, ACS_LLCORNER, 1);
-    mvhline(dialogY + 6, dialogX + 59, ACS_LRCORNER, 1);
-    mvprintw(dialogY, dialogX + 25, " EDIT TODO ");
-    attroff(COLOR_PAIR(1));
+    mvhline(dialogY + 7, dialogX, ACS_LLCORNER, 1);
+    mvhline(dialogY + 7, dialogX + 59, ACS_LRCORNER, 1);
+    mvprintw(dialogY, dialogX + 23, " EDIT TODO ");
+    attroff(A_BOLD | COLOR_PAIR(1));
     
-    mvprintw(dialogY + 2, dialogX + 2, "Description: ");
-    mvprintw(dialogY + 3, dialogX + 16, "%s", todo.description.c_str());
-    mvprintw(dialogY + 4, dialogX + 2, "Priority (1=Low, 2=Medium, 3=High): ");
-    mvprintw(dialogY + 4, dialogX + 42, "%d", static_cast<int>(todo.priority));
-    mvprintw(dialogY + 5, dialogX + 2, "Press Enter to save, Esc to cancel");
+    mvprintw(dialogY + 2, dialogX + 3, "Description: ");
+    mvprintw(dialogY + 3, dialogX + 17, "%s", todo.description.c_str());
+    mvprintw(dialogY + 4, dialogX + 3, "Priority (1=Low, 2=Medium, 3=High): ");
+    mvprintw(dialogY + 4, dialogX + 45, "%d", static_cast<int>(todo.priority));
+    mvprintw(dialogY + 5, dialogX + 3, "Press [Enter] to save, [Esc] to cancel");
+    
     refresh();
     
     char desc[256] = {0};
-    move(dialogY + 2, dialogX + 16);
+    move(dialogY + 2, dialogX + 17);
     getnstr(desc, 255);
     
     if (desc[0] == 27) {
@@ -272,7 +377,7 @@ void App::showEditDialog(const todo::Todo& todo) {
     
     std::string newDesc = strlen(desc) > 0 ? desc : todo.description;
     char prioStr[10] = {0};
-    move(dialogY + 4, dialogX + 42);
+    move(dialogY + 4, dialogX + 45);
     getnstr(prioStr, 9);
     
     int prio = strlen(prioStr) > 0 ? std::max(1, std::min(3, atoi(prioStr))) : static_cast<int>(todo.priority);
@@ -289,39 +394,43 @@ void App::showEditDialog(const todo::Todo& todo) {
 }
 
 void App::showDeleteConfirm(const todo::Todo& todo) {
+    nodelay(stdscr, FALSE);
     echo();
     curs_set(1);
-    nodelay(stdscr, FALSE);
     
-    int dialogY = m_screenHeight / 2 - 3;
-    int dialogX = (m_screenWidth - 50) / 2;
+    int dialogY = std::max(0, m_screenHeight / 2 - 4);
+    int dialogX = std::max(0, (m_screenWidth - 50) / 2);
     
-    if (dialogY < 0) dialogY = 0;
-    if (dialogX < 0) dialogX = 0;
+    // Clear dialog area
+    for (int i = 0; i < 7; i++) {
+        mvhline(dialogY + i, dialogX, ' ', 50);
+    }
     
-    attron(COLOR_PAIR(7));
+    attron(A_BOLD | COLOR_PAIR(7));
     mvhline(dialogY, dialogX, ACS_HLINE, 50);
-    mvhline(dialogY + 5, dialogX, ACS_HLINE, 50);
-    for (int i = 0; i < 6; i++) {
+    mvhline(dialogY + 6, dialogX, ACS_HLINE, 50);
+    for (int i = 0; i < 7; i++) {
         mvvline(dialogY + i, dialogX, ACS_VLINE, 1);
         mvvline(dialogY + i, dialogX + 49, ACS_VLINE, 1);
     }
     mvhline(dialogY, dialogX, ACS_ULCORNER, 1);
     mvhline(dialogY, dialogX + 49, ACS_URCORNER, 1);
-    mvhline(dialogY + 5, dialogX, ACS_LLCORNER, 1);
-    mvhline(dialogY + 5, dialogX + 49, ACS_LRCORNER, 1);
-    mvprintw(dialogY, dialogX + 15, " DELETE TODO ");
-    attroff(COLOR_PAIR(7));
+    mvhline(dialogY + 6, dialogX, ACS_LLCORNER, 1);
+    mvhline(dialogY + 6, dialogX + 49, ACS_LRCORNER, 1);
+    mvprintw(dialogY, dialogX + 17, " DELETE TODO ");
+    attroff(A_BOLD | COLOR_PAIR(7));
     
-    mvprintw(dialogY + 2, dialogX + 2, "Delete: \"%s\"?", todo.description.c_str());
-    mvprintw(dialogY + 3, dialogX + 2, "Press 'y' to confirm, any other key to cancel");
+    mvprintw(dialogY + 2, dialogX + 3, "Delete this todo?");
+    mvprintw(dialogY + 3, dialogX + 3, "\"%s\"", todo.description.c_str());
+    mvprintw(dialogY + 4, dialogX + 3, "Press [Y] to confirm, any other key to cancel");
+    
     refresh();
     
     int ch = getch();
     if (ch == 'y' || ch == 'Y') {
         m_db.deleteTodo(todo.id);
         if (m_selectedIndex >= static_cast<int>(m_todos.size()) - 1) {
-            m_selectedIndex = m_todos.empty() ? 0 : m_todos.size() - 1;
+            m_selectedIndex = m_todos.empty() ? 0 : static_cast<int>(m_todos.size()) - 1;
         }
         refreshTodos();
     }
@@ -332,47 +441,53 @@ void App::showDeleteConfirm(const todo::Todo& todo) {
 }
 
 void App::showHelpDialog() {
+    nodelay(stdscr, FALSE);
     echo();
     curs_set(1);
-    nodelay(stdscr, FALSE);
     
-    int dialogY = m_screenHeight / 2 - 7;
-    int dialogX = (m_screenWidth - 60) / 2;
+    int dialogY = std::max(0, m_screenHeight / 2 - 8);
+    int dialogX = std::max(0, (m_screenWidth - 60) / 2);
     
-    if (dialogY < 0) dialogY = 0;
-    if (dialogX < 0) dialogX = 0;
+    // Clear dialog area
+    for (int i = 0; i < 16; i++) {
+        mvhline(dialogY + i, dialogX, ' ', 60);
+    }
     
-    attron(COLOR_PAIR(1));
+    attron(A_BOLD | COLOR_PAIR(1));
     mvhline(dialogY, dialogX, ACS_HLINE, 60);
-    mvhline(dialogY + 14, dialogX, ACS_HLINE, 60);
-    for (int i = 0; i < 15; i++) {
+    mvhline(dialogY + 15, dialogX, ACS_HLINE, 60);
+    for (int i = 0; i < 16; i++) {
         mvvline(dialogY + i, dialogX, ACS_VLINE, 1);
         mvvline(dialogY + i, dialogX + 59, ACS_VLINE, 1);
     }
     mvhline(dialogY, dialogX, ACS_ULCORNER, 1);
     mvhline(dialogY, dialogX + 59, ACS_URCORNER, 1);
-    mvhline(dialogY + 14, dialogX, ACS_LLCORNER, 1);
-    mvhline(dialogY + 14, dialogX + 59, ACS_LRCORNER, 1);
-    mvprintw(dialogY, dialogX + 25, " HELP ");
-    attroff(COLOR_PAIR(1));
+    mvhline(dialogY + 15, dialogX, ACS_LLCORNER, 1);
+    mvhline(dialogY + 15, dialogX + 59, ACS_LRCORNER, 1);
+    mvprintw(dialogY, dialogX + 25, " HELP - KEYBOARD SHORTCUTS ");
+    attroff(A_BOLD | COLOR_PAIR(1));
     
     const char* helpText[] = {
-        "Keyboard Shortcuts:", "",
         "  n     - Add new todo",
         "  e     - Edit selected todo",
         "  d     - Delete selected todo",
-        "  t     - Toggle completion",
+        "  t     - Toggle completion status",
         "  f     - Filter (All/Active/Completed)",
         "  s     - Search todos",
+        "  ↑/↓   - Navigate list",
+        "  PgUp/Dn - Page through list",
         "  h/?   - Show this help",
-        "  Up/Down - Navigate list",
-        "  q/F10 - Quit", "",
-        "Press any key to continue..."
+        "  q     - Quit application",
+        "",
+        "  Tip: High priority items show in yellow"
     };
     
-    for (int i = 0; i < 13; i++) {
+    for (int i = 0; i < 12; i++) {
         mvprintw(dialogY + 2 + i, dialogX + 3, "%s", helpText[i]);
     }
+    
+    mvprintw(dialogY + 14, dialogX + 3, "Press any key to continue...");
+    
     refresh();
     getch();
     
@@ -382,50 +497,61 @@ void App::showHelpDialog() {
 }
 
 void App::showSearchDialog() {
+    nodelay(stdscr, FALSE);
     echo();
     curs_set(1);
-    nodelay(stdscr, FALSE);
     
-    int dialogY = m_screenHeight / 2 - 2;
-    int dialogX = (m_screenWidth - 40) / 2;
+    int dialogY = std::max(0, m_screenHeight / 2 - 3);
+    int dialogX = std::max(0, (m_screenWidth - 40) / 2);
     
-    if (dialogY < 0) dialogY = 0;
-    if (dialogX < 0) dialogX = 0;
+    // Clear dialog area
+    for (int i = 0; i < 5; i++) {
+        mvhline(dialogY + i, dialogX, ' ', 40);
+    }
     
-    attron(COLOR_PAIR(1));
+    attron(A_BOLD | COLOR_PAIR(1));
     mvhline(dialogY, dialogX, ACS_HLINE, 40);
-    mvhline(dialogY + 3, dialogX, ACS_HLINE, 40);
-    for (int i = 0; i < 4; i++) {
+    mvhline(dialogY + 4, dialogX, ACS_HLINE, 40);
+    for (int i = 0; i < 5; i++) {
         mvvline(dialogY + i, dialogX, ACS_VLINE, 1);
         mvvline(dialogY + i, dialogX + 39, ACS_VLINE, 1);
     }
     mvhline(dialogY, dialogX, ACS_ULCORNER, 1);
     mvhline(dialogY, dialogX + 39, ACS_URCORNER, 1);
-    mvhline(dialogY + 3, dialogX, ACS_LLCORNER, 1);
-    mvhline(dialogY + 3, dialogX + 39, ACS_LRCORNER, 1);
-    mvprintw(dialogY, dialogX + 12, " SEARCH ");
-    attroff(COLOR_PAIR(1));
+    mvhline(dialogY + 4, dialogX, ACS_LLCORNER, 1);
+    mvhline(dialogY + 4, dialogX + 39, ACS_LRCORNER, 1);
+    mvprintw(dialogY, dialogX + 12, " SEARCH TODOS ");
+    attroff(A_BOLD | COLOR_PAIR(1));
     
-    mvprintw(dialogY + 1, dialogX + 2, "Enter search text: ");
-    mvprintw(dialogY + 2, dialogX + 2, "Press Enter to search, Esc to cancel");
+    mvprintw(dialogY + 1, dialogX + 3, "Enter search text:");
+    mvprintw(dialogY + 3, dialogX + 3, "Press [Enter] to search, [Esc] to cancel");
+    
     refresh();
     
     char query[128] = {0};
-    move(dialogY + 1, dialogX + 20);
+    move(dialogY + 1, dialogX + 22);
     getnstr(query, 127);
     
     if (query[0] != 27) {
         m_searchQuery = query;
         if (!m_searchQuery.empty()) {
             std::vector<todo::Todo> results = m_db.searchTodos(m_searchQuery);
+            
+            // Show results
             std::vector<todo::Todo> oldTodos = m_todos;
             m_todos = results;
             m_selectedIndex = 0;
             m_scrollOffset = 0;
+            
             showMainScreen();
-            mvprintw(m_screenHeight - 2, 2, "Found %zu results. Press any key to return...", results.size());
+            
+            attron(A_BOLD | COLOR_PAIR(4));
+            mvprintw(m_screenHeight - 3, 2, " Found %zu results. Press any key to return...", results.size());
+            attroff(A_BOLD | COLOR_PAIR(4));
+            
             refresh();
             getch();
+            
             m_todos = oldTodos;
             m_searchQuery.clear();
             refreshTodos();
@@ -472,7 +598,7 @@ void App::deleteTodo(int index) {
         todo::Todo todo = m_todos[index];
         m_db.deleteTodo(todo.id);
         if (m_selectedIndex >= static_cast<int>(m_todos.size()) - 1) {
-            m_selectedIndex = m_todos.empty() ? 0 : m_todos.size() - 1;
+            m_selectedIndex = m_todos.empty() ? 0 : static_cast<int>(m_todos.size()) - 1;
         }
         refreshTodos();
     }
