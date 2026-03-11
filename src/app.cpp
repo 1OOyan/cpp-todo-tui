@@ -6,6 +6,7 @@
 #include <sstream>
 #include <algorithm>
 #include <functional>
+#include <limits>
 
 using namespace ftxui;
 
@@ -24,8 +25,11 @@ void App::refreshTodos() {
         m_todos = m_db.getAllTodos();
     }
     
-    if (m_selectedIndex >= static_cast<int>(m_todos.size())) {
-        m_selectedIndex = m_todos.empty() ? 0 : static_cast<int>(m_todos.size()) - 1;
+    // Ensure selected index is valid
+    if (m_todos.empty()) {
+        m_selectedIndex = 0;
+    } else if (m_selectedIndex >= static_cast<int>(m_todos.size())) {
+        m_selectedIndex = static_cast<int>(m_todos.size()) - 1;
     }
     if (m_selectedIndex < 0) m_selectedIndex = 0;
 }
@@ -44,6 +48,7 @@ void App::run() {
     });
     
     auto main_component = CatchEvent(main_ui, [this](Event event) {
+        // Global quit
         if (event == Event::Character('q')) {
             m_screen.ExitLoopClosure();
             return true;
@@ -54,6 +59,7 @@ void App::run() {
             return true;
         }
         
+        // Only accept these keys in main view
         if (event == Event::Character('n')) {
             addTodo();
             return true;
@@ -171,20 +177,20 @@ ftxui::Element App::renderTodoList() {
             statusElem = statusElem | color(Color::Green);
         }
         
-        // Priority
+        // Priority with better formatting
         std::string prio;
         Color prioColor;
         switch (todo.priority) {
             case todo::Priority::High:
-                prio = "HIGH ";
+                prio = "[H]";
                 prioColor = Color::Yellow;
                 break;
             case todo::Priority::Medium:
-                prio = "MEDIUM";
+                prio = "[M]";
                 prioColor = Color::Cyan;
                 break;
             case todo::Priority::Low:
-                prio = "LOW  ";
+                prio = "[L]";
                 prioColor = Color::Magenta;
                 break;
         }
@@ -192,8 +198,9 @@ ftxui::Element App::renderTodoList() {
         
         // Description
         std::string desc = todo.description;
-        if (desc.length() > 50) {
-            desc = desc.substr(0, 47) + "...";
+        // Truncate if too long
+        if (desc.length() > 60) {
+            desc = desc.substr(0, 57) + "...";
         }
         Element descElem = text(" " + desc);
         if (todo.isCompleted()) {
@@ -208,7 +215,7 @@ ftxui::Element App::renderTodoList() {
         });
         
         if (isSelected) {
-            row = row | inverted | border;
+            row = row | inverted | bold;
         }
         
         todoElements.push_back(row);
@@ -219,39 +226,74 @@ ftxui::Element App::renderTodoList() {
 
 void App::addTodo() {
     std::string description;
-    std::string priorityStr = "1";
+    int selectedPriority = 2; // Medium priority by default
     bool done = false;
+    bool error = false;
+    std::string errorMsg;
     
-    auto input_desc = Input(&description, "Description:");
-    auto input_prio = Input(&priorityStr, "Priority (1-3):");
+    auto input_desc = Input(&description, "Description: [Enter to confirm]");
     
-    auto add_ui = Renderer([this, &description, &priorityStr, &input_desc, &input_prio]() {
-        return vbox({
+    auto add_ui = Renderer([this, &description, &selectedPriority, &input_desc, &error, &errorMsg]() {
+        std::string prioText;
+        switch (selectedPriority) {
+            case 1: prioText = "Low"; break;
+            case 2: prioText = "Medium"; break;
+            case 3: prioText = "High"; break;
+        }
+        
+        Elements content = {
             text("Add New Todo") | bold,
             separator(),
             text("Description:"),
             input_desc->Render(),
-            text("Priority (1=Low, 2=Medium, 3=High): " + priorityStr),
-            separator(),
-            text("Press Enter to save, Esc to cancel") | dim
-        }) | border;
+            text("") | separator,
+            text("Priority (1=Low, 2=Medium, 3=High): ") | dim,
+            text(prioText) | bold,
+            text("  Press 1, 2, or 3 to change, Enter to save") | dim,
+        };
+        
+        if (error) {
+            content.push_back(text("") | separator);
+            content.push_back(text(errorMsg) | color(Color::Red));
+        }
+        
+        return vbox(content) | border;
     });
     
     auto add_comp = CatchEvent(add_ui, [&](Event event) {
         if (event == Event::Return) {
-            if (!description.empty()) {
-                int priority = std::max(1, std::min(3, std::stoi(priorityStr)));
-                todo::Todo newTodo;
-                newTodo.description = description;
-                newTodo.priority = static_cast<todo::Priority>(priority);
-                m_db.createTodo(newTodo);
-                refreshTodos();
+            if (description.empty()) {
+                error = true;
+                errorMsg = "Description cannot be empty!";
+                return true;
             }
+            
+            todo::Todo newTodo;
+            newTodo.description = description;
+            newTodo.priority = static_cast<todo::Priority>(selectedPriority);
+            m_db.createTodo(newTodo);
+            refreshTodos();
             done = true;
             return true;
         }
         if (event == Event::Escape) {
             done = true;
+            return true;
+        }
+        // Priority selection
+        if (event == Event::Character('1')) {
+            selectedPriority = 1;
+            error = false;
+            return true;
+        }
+        if (event == Event::Character('2')) {
+            selectedPriority = 2;
+            error = false;
+            return true;
+        }
+        if (event == Event::Character('3')) {
+            selectedPriority = 3;
+            error = false;
             return true;
         }
         return false;
@@ -267,37 +309,74 @@ void App::editTodo() {
     
     todo::Todo& todo = m_todos[m_selectedIndex];
     std::string description = todo.description;
-    std::string priorityStr = std::to_string(static_cast<int>(todo.priority));
+    int selectedPriority = static_cast<int>(todo.priority);
     bool done = false;
+    bool error = false;
+    std::string errorMsg;
     
-    auto input_desc = Input(&description, "Description:");
+    auto input_desc = Input(&description, "Description: [Enter to confirm]");
     
-    auto edit_ui = Renderer([this, &description, &priorityStr, &input_desc]() {
-        return vbox({
+    auto edit_ui = Renderer([this, &description, &selectedPriority, &input_desc, &error, &errorMsg]() {
+        std::string prioText;
+        switch (selectedPriority) {
+            case 1: prioText = "Low"; break;
+            case 2: prioText = "Medium"; break;
+            case 3: prioText = "High"; break;
+        }
+        
+        Elements content = {
             text("Edit Todo") | bold,
             separator(),
             text("Description:"),
             input_desc->Render(),
-            text("Priority (1=Low, 2=Medium, 3=High): " + priorityStr),
-            separator(),
-            text("Press Enter to save, Esc to cancel") | dim
-        }) | border;
+            text("") | separator,
+            text("Current Priority: ") | dim,
+            text(prioText) | bold,
+            text("  Press 1, 2, or 3 to change priority") | dim,
+            text("  Press Enter to save, Esc to cancel") | dim,
+        };
+        
+        if (error) {
+            content.push_back(text("") | separator);
+            content.push_back(text(errorMsg) | color(Color::Red));
+        }
+        
+        return vbox(content) | border;
     });
     
     auto edit_comp = CatchEvent(edit_ui, [&](Event event) {
         if (event == Event::Return) {
-            if (!description.empty()) {
-                int priority = std::max(1, std::min(3, std::stoi(priorityStr)));
-                todo.description = description;
-                todo.priority = static_cast<todo::Priority>(priority);
-                m_db.updateTodo(todo);
-                refreshTodos();
+            if (description.empty()) {
+                error = true;
+                errorMsg = "Description cannot be empty!";
+                return true;
             }
+            
+            todo.description = description;
+            todo.priority = static_cast<todo::Priority>(selectedPriority);
+            m_db.updateTodo(todo);
+            refreshTodos();
             done = true;
             return true;
         }
         if (event == Event::Escape) {
             done = true;
+            return true;
+        }
+        // Priority selection
+        if (event == Event::Character('1')) {
+            selectedPriority = 1;
+            error = false;
+            return true;
+        }
+        if (event == Event::Character('2')) {
+            selectedPriority = 2;
+            error = false;
+            return true;
+        }
+        if (event == Event::Character('3')) {
+            selectedPriority = 3;
+            error = false;
             return true;
         }
         return false;
@@ -316,18 +395,18 @@ void App::deleteTodo() {
     
     auto confirm_ui = Renderer([&]() {
         return vbox({
-            text("Delete Todo?") | bold,
+            text("Delete Todo?") | bold | color(Color::Red),
             separator(),
             text("\"" + todo.description + "\""),
-            separator(),
-            text("Press Y to confirm, any other key to cancel") | dim
+            text("") | separator,
+            text("Press Y to confirm, N to cancel") | dim,
         }) | border;
     });
     
     auto confirm_comp = CatchEvent(confirm_ui, [&](Event event) {
         if (event == Event::Character('y') || event == Event::Character('Y')) {
             m_db.deleteTodo(todo.id);
-            if (m_selectedIndex >= static_cast<int>(m_todos.size()) - 1) {
+            if (m_selectedIndex >= static_cast<int>(m_todos.size())) {
                 m_selectedIndex = m_todos.empty() ? 0 : static_cast<int>(m_todos.size()) - 1;
             }
             refreshTodos();
@@ -347,6 +426,22 @@ void App::toggleTodo() {
     todo::Todo& todo = m_todos[m_selectedIndex];
     todo.status = todo.isCompleted() ? todo::TodoStatus::Active : todo::TodoStatus::Completed;
     m_db.updateTodo(todo);
+    
+    // Move to next item if current is now filtered out
+    if (m_currentFilter == todo::TodoStatus::Active && todo.isCompleted()) {
+        if (m_selectedIndex < static_cast<int>(m_todos.size()) - 1) {
+            m_selectedIndex++;
+        } else if (m_selectedIndex > 0) {
+            m_selectedIndex--;
+        }
+    } else if (m_currentFilter == todo::TodoStatus::Completed && !todo.isCompleted()) {
+        if (m_selectedIndex < static_cast<int>(m_todos.size()) - 1) {
+            m_selectedIndex++;
+        } else if (m_selectedIndex > 0) {
+            m_selectedIndex--;
+        }
+    }
+    
     refreshTodos();
 }
 
@@ -356,12 +451,15 @@ void App::filterTodos() {
             m_currentFilter = todo::TodoStatus::Completed;
             break;
         case todo::TodoStatus::Completed:
-            m_currentFilter = todo::TodoStatus::Active;
+            m_currentFilter = todo::TodoStatus::All;
             break;
         default:
             m_currentFilter = todo::TodoStatus::Active;
             break;
     }
+    
+    // Clear search when changing filter
+    m_searchQuery.clear();
     refreshTodos();
 }
 
@@ -369,16 +467,16 @@ void App::searchTodos() {
     std::string query;
     bool done = false;
     
-    auto input_query = Input(&query, "Search:");
+    auto input_query = Input(&query, "Search (Esc to cancel): ");
     
     auto search_ui = Renderer([&]() {
         return vbox({
             text("Search Todos") | bold,
             separator(),
-            text("Enter search text:"),
+            text("Enter text to search:"),
             input_query->Render(),
-            separator(),
-            text("Press Enter to search, Esc to cancel") | dim
+            text("") | separator,
+            text("Press Enter to search, Esc to cancel") | dim,
         }) | border;
     });
     
@@ -386,8 +484,16 @@ void App::searchTodos() {
         if (event == Event::Return) {
             if (!query.empty()) {
                 m_searchQuery = query;
+                // Clear filter when searching
+                todo::TodoStatus oldFilter = m_currentFilter;
+                m_currentFilter = todo::TodoStatus::All;
                 m_todos = m_db.searchTodos(m_searchQuery);
+                m_currentFilter = oldFilter;
                 m_selectedIndex = 0;
+            } else {
+                // Empty search clears search
+                m_searchQuery.clear();
+                refreshTodos();
             }
             done = true;
             return true;
@@ -417,13 +523,13 @@ void App::showHelp() {
             text("  e     - Edit selected todo"),
             text("  d     - Delete selected todo"),
             text("  t     - Toggle completion status"),
-            text("  f     - Filter (All/Active/Completed)"),
+            text("  f     - Filter (Active → Completed → All)"),
             text("  s     - Search todos"),
             text("  ↑/↓   - Navigate list"),
             text("  h/?   - Show this help"),
             text("  q     - Quit application"),
             separator(),
-            text("  Tip: High priority items show in yellow") | dim,
+            text("  Priority: [H]=High [M]=Medium [L]=Low") | dim,
             text("  Press any key to continue...") | dim
         }) | border;
     });
