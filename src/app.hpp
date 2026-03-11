@@ -22,6 +22,12 @@ private:
     ftxui::Element renderFooter();
     ftxui::Element renderStatusLine();
     ftxui::Element renderTodoList();
+    ftxui::Element renderAddDialog();
+    ftxui::Element renderEditDialog();
+    ftxui::Element renderDeleteDialog();
+    ftxui::Element renderSearchDialog();
+    ftxui::Element renderHelpDialog();
+    ftxui::Element renderMainView();
     
     // Actions
     void addTodo();
@@ -37,6 +43,24 @@ private:
     todo::TodoStatus m_currentFilter;
     bool m_showHelp = false;
     std::string m_searchQuery;
+    
+    // Dialog state
+    enum class DialogState {
+        None,
+        Add,
+        Edit,
+        Delete,
+        Search,
+        Help
+    };
+    DialogState m_dialogState = DialogState::None;
+    
+    // Dialog data
+    std::string m_dialogDescription;
+    int m_dialogPriority = 2;
+    std::string m_dialogError;
+    std::string m_dialogSearchQuery;
+    int m_dialogTodoIndex = -1;
     
     // Components
     ftxui::ScreenInteractive m_screen;
