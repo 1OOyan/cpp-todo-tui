@@ -334,7 +334,7 @@ ftxui::Element App::renderTodoList() {
     if (m_todos.empty()) {
         return vbox({
             filler(),
-            text("📝 No todos yet! Press [n] to add your first todo.") | center | color(Color::Magenta),
+            text("No todos yet! Press [n] to add your first todo.") | center | color(Color::Magenta),
             filler()
         });
     }
@@ -405,33 +405,26 @@ ftxui::Element App::renderAddDialog() {
         case 3: prioText = "High"; break;
     }
     
-    // Create a centered modal dialog
+    Elements content;
+    content.push_back(text("Description:"));
+    
     std::string inputText = m_dialogDescription;
     if (inputText.empty()) {
-        inputText = "Type description here...";
+        inputText = "[Type description here...]";
     }
-    
-    Elements content;
-    content.push_back(text("Add New Todo") | bold);
-    content.push_back(separator());
-    content.push_back(text("Description:"));
-    content.push_back(text("┌" + std::string(50, '─') + "┐"));
-    content.push_back(text("│ " + inputText + std::string(50 - inputText.length(), ' ') + "│") | color(Color::White));
-    content.push_back(text("└" + std::string(50, '─') + "┘"));
+    content.push_back(text("  " + inputText + "  ") | bgcolor(Color::DarkGray) | color(Color::White));
     content.push_back(text(""));
-    content.push_back(separator());
     content.push_back(text("Priority (1=Low, 2=Medium, 3=High): ") | dim);
     content.push_back(text(prioText) | bold);
     content.push_back(text("  Type text, 1/2/3 for priority, Enter to save, Esc to cancel") | dim);
     
     if (!m_dialogError.empty()) {
         content.push_back(text(""));
-        content.push_back(separator());
         content.push_back(text(m_dialogError) | color(Color::Red));
     }
     
-    // Wrap in a box and center it
-    return vbox(content) | border | center | window(text("Add New Todo"), filler());
+    // Use window() with proper Decorator signature
+    return vbox(content) | window(text("Add New Todo"));
 }
 
 ftxui::Element App::renderEditDialog() {
@@ -442,37 +435,31 @@ ftxui::Element App::renderEditDialog() {
         case 3: prioText = "High"; break;
     }
     
+    Elements content;
+    content.push_back(text("Description:"));
+    
     std::string inputText = m_dialogDescription;
     if (inputText.empty()) {
-        inputText = "Type description here...";
+        inputText = "[Type description here...]";
     }
-    
-    Elements content;
-    content.push_back(text("Edit Todo") | bold);
-    content.push_back(separator());
-    content.push_back(text("Description:"));
-    content.push_back(text("┌" + std::string(50, '─') + "┐"));
-    content.push_back(text("│ " + inputText + std::string(50 - inputText.length(), ' ') + "│") | color(Color::White));
-    content.push_back(text("└" + std::string(50, '─') + "┘"));
+    content.push_back(text("  " + inputText + "  ") | bgcolor(Color::DarkGray) | color(Color::White));
     content.push_back(text(""));
-    content.push_back(separator());
     content.push_back(text("Current Priority: ") | dim);
     content.push_back(text(prioText) | bold);
     content.push_back(text("  Type text, 1/2/3 for priority, Enter to save, Esc to cancel") | dim);
     
     if (!m_dialogError.empty()) {
         content.push_back(text(""));
-        content.push_back(separator());
         content.push_back(text(m_dialogError) | color(Color::Red));
     }
     
-    return vbox(content) | border | center | window(text("Edit Todo"), filler());
+    return vbox(content) | window(text("Edit Todo"));
 }
 
 ftxui::Element App::renderDeleteDialog() {
     Elements content;
     content.push_back(text("Delete Todo?") | bold | color(Color::Red));
-    content.push_back(separator());
+    content.push_back(text(""));
     if (m_dialogTodoIndex >= 0 && m_dialogTodoIndex < static_cast<int>(m_todos.size())) {
         std::string desc = m_todos[m_dialogTodoIndex].description;
         if (desc.length() > 40) {
@@ -481,51 +468,44 @@ ftxui::Element App::renderDeleteDialog() {
         content.push_back(text("\"" + desc + "\""));
     }
     content.push_back(text(""));
-    content.push_back(separator());
     content.push_back(text("Press Y to confirm, Esc to cancel") | dim);
     
-    return vbox(content) | border | center | window(text("Delete"), filler());
+    return vbox(content) | window(text("Delete"));
 }
 
 ftxui::Element App::renderSearchDialog() {
+    Elements content;
+    content.push_back(text("Enter text to search:"));
+    
     std::string inputText = m_dialogSearchQuery;
     if (inputText.empty()) {
-        inputText = "Type search text...";
+        inputText = "[Type search text...]";
     }
-    
-    Elements content;
-    content.push_back(text("Search Todos") | bold);
-    content.push_back(separator());
-    content.push_back(text("Enter text to search:"));
-    content.push_back(text("┌" + std::string(50, '─') + "┐"));
-    content.push_back(text("│ " + inputText + std::string(50 - inputText.length(), ' ') + "│") | color(Color::White));
-    content.push_back(text("└" + std::string(50, '─') + "┘"));
+    content.push_back(text("  " + inputText + "  ") | bgcolor(Color::DarkGray) | color(Color::White));
     content.push_back(text(""));
-    content.push_back(separator());
     content.push_back(text("Type to search, Enter to confirm, Esc to cancel") | dim);
     
-    return vbox(content) | border | center | window(text("Search"), filler());
+    return vbox(content) | window(text("Search"));
 }
 
 ftxui::Element App::renderHelpDialog() {
     Elements content;
     content.push_back(text("  HELP - KEYBOARD SHORTCUTS  ") | bold);
-    content.push_back(separator());
+    content.push_back(text(""));
     content.push_back(text("  n     - Add new todo"));
     content.push_back(text("  e     - Edit selected todo"));
     content.push_back(text("  d     - Delete selected todo"));
     content.push_back(text("  t     - Toggle completion status"));
-    content.push_back(text("  f     - Filter (Active ↔ Completed)"));
+    content.push_back(text("  f     - Filter (Active <-> Completed)"));
     content.push_back(text("  s     - Search todos"));
-    content.push_back(text("  ↑/↓   - Navigate list"));
+    content.push_back(text("  UP/DOWN - Navigate list"));
     content.push_back(text("  h/?   - Show this help"));
     content.push_back(text("  q     - Quit application"));
     content.push_back(text(""));
-    content.push_back(separator());
     content.push_back(text("  Priority: [H]=High [M]=Medium [L]=Low") | dim);
     content.push_back(text("  Press any key to continue...") | dim);
     
-    return vbox(content) | border | center | window(text("Help"), filler());
+    return vbox(content) | window(text("Help"));
 }
 
 void App::addTodo() {}
