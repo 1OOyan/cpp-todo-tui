@@ -3,8 +3,11 @@
 
 #include <vector>
 #include <string>
+#include <memory>
 #include "models.hpp"
 #include "database.hpp"
+#include <ftxui/component/component.hpp>
+#include <ftxui/component/screen_interactive.hpp>
 
 class App {
 public:
@@ -15,25 +18,19 @@ public:
 
 private:
     void showMainScreen();
-    void showTodoList(const std::vector<todo::Todo>& todos);
-    void showAddDialog();
-    void showEditDialog(const todo::Todo& todo);
-    void showDeleteConfirm(const todo::Todo& todo);
-    void showSearchDialog();
-    void showHelpDialog();
-    void showStats();
+    ftxui::Element renderTodoList();
+    ftxui::Element renderHeader();
+    ftxui::Element renderFooter();
+    ftxui::Element renderStatusLine();
     
-    void renderHeader();
-    void renderFooter();
-    void renderStatusLine();
-    
-    todo::Todo inputNewTodo();
-    void selectTodo(int index);
-    void toggleTodo(int index);
-    void deleteTodo(int index);
+    void addTodo();
+    void editTodo();
+    void deleteTodo();
+    void toggleTodo();
     void filterTodos();
     void searchTodos();
     void refreshTodos();
+    void showHelp();
     
     std::string m_searchQuery;
     int m_selectedIndex = 0;
@@ -43,8 +40,19 @@ private:
     Database m_db;
     std::vector<todo::Todo> m_todos;
     
-    int m_screenWidth = 80;
-    int m_screenHeight = 24;
+    // FTXUI components
+    ftxui::Component m_container;
+    ftxui::ScreenInteractive m_screen;
+    bool m_showHelp = false;
+    bool m_showAddDialog = false;
+    bool m_showEditDialog = false;
+    bool m_showDeleteConfirm = false;
+    bool m_showSearchDialog = false;
+    
+    // Dialog state
+    std::string m_dialogInput;
+    int m_dialogPriority = 1;
+    todo::Todo m_currentTodo;
 };
 
 #endif // APP_HPP
