@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <sstream>
 #include <clocale>
+#include <cstring>
 
 App::App() : m_db("todo.db") {
     refreshTodos();
@@ -380,7 +381,7 @@ void App::showSearchDialog() {
             m_selectedIndex = 0;
             m_scrollOffset = 0;
             showMainScreen();
-            mvprintw(m_screenHeight - 2, 2, "Found %d results. Press any key to return...", results.size());
+            mvprintw(m_screenHeight - 2, 2, "Found %zu results. Press any key to return...", results.size());
             refresh();
             getch();
             m_todos = oldTodos;
